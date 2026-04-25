@@ -1488,6 +1488,7 @@ function toLegacyParsed(summary: ConversationSummaryInternal, parsed: ParsedConv
     summary: toApiSummary(summary),
     events: parsed.events,
     tokenSeries: parsed.tokenSeries.map((point) => ({
+      eventIndex: safeInt(point.event_index, -1) >= 0 ? safeInt(point.event_index) : undefined,
       timestamp: point.timestamp,
       totalTokens: safeInt(point.total_tokens),
       promptTokens: safeInt(point.last_input_tokens || point.input_tokens),

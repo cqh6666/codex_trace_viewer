@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatTimestamp, formatFullDate, cn } from './lib/utils';
-import { TraceEvent, ConversationSummary, ParsedConversation, ToolAnalytics, EventDetail } from './types';
+import { TraceEvent, ConversationSummary, ParsedConversation, ToolAnalytics, EventDetail, TokenSnapshot, CompactionImpact } from './types';
 
 // Components
 const EventIcon = ({ category }: { category: TraceEvent['category'] }) => {
@@ -143,7 +143,7 @@ function useElementSize<T extends HTMLElement>(active = true) {
   return { ref, size };
 }
 
-function useVirtualWindow(count: number, rowHeight: number, enabled: boolean) {
+function useVirtualWindow(count: number, rowHeight: number, enabled: boolean, resetKey?: string | null) {
   const { ref, size } = useElementSize<HTMLDivElement>(enabled);
   const [scrollTop, setScrollTop] = React.useState(0);
   const frameRef = React.useRef<number | null>(null);
@@ -155,8 +155,11 @@ function useVirtualWindow(count: number, rowHeight: number, enabled: boolean) {
       frameRef.current = null;
     }
     pendingScrollTopRef.current = 0;
+    if (ref.current) {
+      ref.current.scrollTop = 0;
+    }
     setScrollTop(0);
-  }, [count, enabled]);
+  }, [count, enabled, ref, resetKey]);
 
   React.useEffect(() => () => {
     if (frameRef.current !== null) {
@@ -275,6 +278,7 @@ const TimelineEventRow = React.memo(function TimelineEventRow({
   return (
     <button
       onClick={() => onSelectEvent(event)}
+      data-event-id={event.id}
       className={cn(
         "w-full text-left p-2.5 transition-all border-l-2 relative group",
         isSelected
@@ -334,6 +338,7 @@ interface TimelinePanelProps {
   filteredEventCount: number;
   hiddenEventCount: number;
   isFocusMode: boolean;
+  resetScrollKey: string | null;
   selectedEventId: string | null;
   showAllEvents: boolean;
   timelineEvents: TraceEvent[];
@@ -350,6 +355,7 @@ const TimelinePanel = React.memo(function TimelinePanel({
   filteredEventCount,
   hiddenEventCount,
   isFocusMode,
+  resetScrollKey,
   selectedEventId,
   showAllEvents,
   timelineEvents,
@@ -360,7 +366,12 @@ const TimelinePanel = React.memo(function TimelinePanel({
   onToggleShowAllEvents,
 }: TimelinePanelProps) {
   const shouldVirtualizeTimeline = !isFocusMode;
-  const timelineWindow = useVirtualWindow(timelineEvents.length, TIMELINE_ROW_HEIGHT, shouldVirtualizeTimeline);
+  const timelineWindow = useVirtualWindow(
+    timelineEvents.length,
+    TIMELINE_ROW_HEIGHT,
+    shouldVirtualizeTimeline,
+    resetScrollKey,
+  );
   const renderedTimelineEvents = React.useMemo(
     () => shouldVirtualizeTimeline
       ? timelineWindow.indexes.map((index) => timelineEvents[index]).filter(Boolean)
@@ -410,6 +421,46 @@ const TimelinePanel = React.memo(function TimelinePanel({
 
     return () => observer.disconnect();
   }, [updateFilterRailOverflow]);
+
+  React.useEffect(() => {
+    if (!selectedEventId) return;
+
+    const node = timelineWindow.containerRef.current;
+    if (!node) return;
+
+    const selectedIndex = timelineEvents.findIndex((event) => event.id === selectedEventId);
+    if (selectedIndex < 0) return;
+
+    if (shouldVirtualizeTimeline) {
+      const selectedTop = selectedIndex * TIMELINE_ROW_HEIGHT;
+      const selectedBottom = selectedTop + TIMELINE_ROW_HEIGHT;
+      const viewportTop = node.scrollTop;
+      const viewportBottom = viewportTop + node.clientHeight;
+
+      if (selectedTop >= viewportTop && selectedBottom <= viewportBottom) {
+        return;
+      }
+
+      const targetTop = Math.max(
+        0,
+        selectedTop - Math.max(0, (node.clientHeight - TIMELINE_ROW_HEIGHT) / 2),
+      );
+      node.scrollTo({ top: targetTop, behavior: 'smooth' });
+      return;
+    }
+
+    const escapedEventId = selectedEventId.replace(/"/g, '\\"');
+    const selectedRow = node.querySelector<HTMLElement>(`[data-event-id="${escapedEventId}"]`);
+    if (!selectedRow) return;
+
+    const rowTop = selectedRow.offsetTop;
+    const rowHeight = selectedRow.offsetHeight || TIMELINE_ROW_HEIGHT;
+    const targetTop = Math.max(
+      0,
+      rowTop - Math.max(0, (node.clientHeight - rowHeight) / 2),
+    );
+    node.scrollTo({ top: targetTop, behavior: 'smooth' });
+  }, [selectedEventId, shouldVirtualizeTimeline, timelineEvents, timelineWindow.containerRef]);
 
   return (
     <section className={cn(
@@ -727,6 +778,7 @@ export default function App() {
   const [isResizing, setIsResizing] = React.useState(false);
   const sessionDetailCacheRef = React.useRef(new Map<string, ParsedConversation>());
   const eventDetailCacheRef = React.useRef(new Map<string, EventDetail>());
+  const skipNextEventCollapseRef = React.useRef(false);
 
   const applySessionDetail = React.useCallback(
     (data: ParsedConversation, preserveSelectedEvent?: TraceEvent | null) => {
@@ -935,6 +987,10 @@ export default function App() {
   const filterKey = filter.join('|');
 
   React.useEffect(() => {
+    if (skipNextEventCollapseRef.current) {
+      skipNextEventCollapseRef.current = false;
+      return;
+    }
     setShowAllEvents(false);
   }, [selectedSession, isFocusMode, filterKey]);
 
@@ -967,6 +1023,8 @@ export default function App() {
   const visibleToolMax = visibleToolRows[0]?.count || 1;
   const toolRootsPreview = visibleToolAnalytics?.top_command_roots?.slice(0, 3).map(item => item.name).join(', ');
   const handleSelectSession = React.useCallback((sessionId: string) => {
+    setSelectedEvent(null);
+    setSelectedEventDetail(null);
     React.startTransition(() => setSelectedSession(sessionId));
   }, []);
   const handleLoadMoreSessions = React.useCallback(() => {
@@ -982,8 +1040,38 @@ export default function App() {
     setShowAllEvents((current) => !current);
   }, []);
   const handleSelectEvent = React.useCallback((event: TraceEvent) => {
-    React.startTransition(() => setSelectedEvent(event));
+    setSelectedEvent(event);
   }, []);
+  const focusEventByIndex = React.useCallback((eventIndex: number) => {
+    if (!parsedData) return;
+
+    const targetEvent = parsedData.events.find((event) => event.index === eventIndex);
+    if (!targetEvent) return;
+
+    let nextFilter = filter;
+    if (nextFilter.length > 0 && !nextFilter.includes(targetEvent.category)) {
+      skipNextEventCollapseRef.current = true;
+      nextFilter = [];
+      setFilter([]);
+    }
+
+    const nextFilteredEvents = parsedData.events.filter(
+      (event) => nextFilter.length === 0 || nextFilter.includes(event.category),
+    );
+    const nextVisibleIndex = nextFilteredEvents.findIndex((event) => event.id === targetEvent.id);
+    if (!showAllEvents && nextVisibleIndex >= eventRenderLimit) {
+      setShowAllEvents(true);
+    }
+
+    setSelectedEvent(targetEvent);
+  }, [eventRenderLimit, filter, parsedData, showAllEvents]);
+  const handleSelectTokenSnapshot = React.useCallback((snapshot: TokenSnapshot) => {
+    if (typeof snapshot.eventIndex !== 'number') return;
+    focusEventByIndex(snapshot.eventIndex);
+  }, [focusEventByIndex]);
+  const handleSelectCompaction = React.useCallback((impact: CompactionImpact) => {
+    focusEventByIndex(impact.compaction_event_index);
+  }, [focusEventByIndex]);
   const handleCloseInspector = React.useCallback(() => {
     setSelectedEvent(null);
   }, []);
@@ -1169,7 +1257,18 @@ export default function App() {
                   </div>
                   <div className="flex-1 min-w-0 min-h-0">
                     <React.Suspense fallback={<div className="h-full w-full rounded border border-border-subtle bg-bg-surface/50" />}>
-                      <TokenArcChart data={parsedData.tokenSeries} />
+                      <TokenArcChart
+                        data={parsedData.tokenSeries}
+                        compactions={parsedData.compactionImpacts}
+                        onSelectSnapshot={handleSelectTokenSnapshot}
+                        onSelectCompaction={handleSelectCompaction}
+                        selectedCompactionEventIndex={
+                          selectedEvent?.category === 'compaction' ? selectedEvent.index ?? null : null
+                        }
+                        selectedTokenEventIndex={
+                          selectedEvent?.category === 'token' ? selectedEvent.index ?? null : null
+                        }
+                      />
                     </React.Suspense>
                   </div>
                 </div>
@@ -1249,6 +1348,7 @@ export default function App() {
                 filteredEventCount={filteredEvents.length}
                 hiddenEventCount={hiddenEventCount}
                 isFocusMode={isFocusMode}
+                resetScrollKey={selectedSession}
                 selectedEventId={selectedEvent?.id ?? null}
                 showAllEvents={showAllEvents}
                 timelineEvents={timelineEvents}

@@ -17,11 +17,23 @@ export interface TraceEvent {
 }
 
 export interface TokenSnapshot {
+  eventIndex?: number;
   timestamp: string;
   totalTokens: number;
   promptTokens: number;
   completionTokens: number;
   isCompaction?: boolean;
+}
+
+export interface CompactionImpact {
+  compaction_event_index: number;
+  before_event_index: number | null;
+  after_event_index: number | null;
+  before_total_tokens: number | null;
+  after_total_tokens: number | null;
+  delta_tokens: number | null;
+  before_fill_percent: number | null;
+  after_fill_percent: number | null;
 }
 
 export interface ToolStat {
@@ -61,7 +73,7 @@ export interface ParsedConversation {
   toolStats: ToolStat[];
   turns: any[];
   stats?: any;
-  compactionImpacts?: any[];
+  compactionImpacts?: CompactionImpact[];
   toolAnalytics?: any;
 }
 
