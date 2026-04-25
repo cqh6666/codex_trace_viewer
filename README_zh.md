@@ -1,0 +1,137 @@
+# Codex Trace Viewer
+
+一个专业的 Web 工具，用于分析 Codex rollout traces。该应用扫描 Codex JSONL 会话文件，构建会话摘要，解析事件时间线，并通过直观的 React UI 提供全面的 token/工具/轮次分析。
+
+[English Documentation](./README.md)
+
+## 界面截图
+
+![Codex Trace Viewer 界面](./asserts/example.png)
+
+界面采用三栏布局，包含会话列表、事件时间线和详细的事件检查器。
+
+## 功能特性
+
+- **会话管理**：浏览和搜索活跃及归档的 Codex 会话
+- **事件时间线**：可视化会话事件，支持按类别过滤（消息、工具调用、推理、token 等）
+- **Token 分析**：通过交互式图表跟踪 token 使用情况，显示上下文利用率
+- **工具使用分析**：分析工具调用模式，提供会话级和全局统计
+- **专注模式**：无干扰视图，用于深度追踪分析
+- **事件检查器**：详细的 payload 检查，包含格式化内容和原始 JSON 视图
+- **实时更新**：按需刷新会话和分析数据
+
+## 前置要求
+
+- Node.js（推荐 v16 或更高版本）
+
+## 安装
+
+```bash
+npm install
+```
+
+## 使用方法
+
+### 开发模式
+
+```bash
+npm run dev
+```
+
+服务器将在 `http://localhost:3000` 启动。
+
+### 生产构建
+
+```bash
+npm run build
+npm start
+```
+
+### 配置
+
+默认情况下，后端从 `~/.codex/sessions` 和 `~/.codex/archived_sessions` 读取数据。
+
+要指向不同的追踪源，请使用环境变量：
+
+```bash
+# 设置自定义 Codex 主目录
+CODEX_HOME=/path/to/.codex npm run dev
+
+# 或设置明确的会话目录
+CODEX_SESSIONS_PATH=./data/sessions CODEX_ARCHIVED_PATH=./data/archived_sessions npm run dev
+
+# 自定义端口
+PORT=8080 npm run dev
+```
+
+创建 `.env` 文件以进行持久化配置（参考 `.env.example`）。
+
+## API 端点
+
+### 兼容旧版的端点
+
+- `GET /api/sessions` - 列出所有会话，支持可选搜索
+- `GET /api/sessions/:id` - 获取包含事件的详细会话数据
+
+### 增强的追踪 API
+
+- `GET /api/health` - 健康检查端点
+- `GET /api/bootstrap?include_archived=1` - 引导数据，可选包含归档会话
+- `GET /api/tool-analytics?limit=12` - 全局工具使用分析
+- `GET /api/conversations?q=keyword` - 按关键词搜索会话
+- `GET /api/conversations/:id/events` - 获取会话的事件时间线
+- `GET /api/conversations/:id/events/:eventIndex?full=1` - 获取详细的事件数据
+
+## 项目结构
+
+```
+codex-trace-viewer/
+├── src/
+│   ├── App.tsx           # 主 React 应用
+│   ├── main.tsx          # 应用入口点
+│   ├── types.ts          # TypeScript 类型定义
+│   └── lib/
+│       └── utils.ts      # 工具函数
+├── server.ts             # Express 后端服务器
+├── data/                 # 默认数据目录
+├── index.html            # HTML 模板
+├── vite.config.ts        # Vite 配置
+└── package.json          # 项目依赖
+```
+
+## 技术栈
+
+- **前端**：React 19、TypeScript、Tailwind CSS、Motion（动画）、Recharts（图表）
+- **后端**：Express.js、Node.js
+- **构建工具**：Vite
+- **UI 图标**：Lucide React
+
+## 开发
+
+```bash
+# 安装依赖
+npm install
+
+# 运行开发服务器（支持热重载）
+npm run dev
+
+# 类型检查
+npm run lint
+
+# 生产构建
+npm run build
+
+# 预览生产构建
+npm run preview
+
+# 清理构建产物
+npm run clean
+```
+
+## 许可证
+
+本项目为私有项目，不对外授权使用。
+
+## 贡献
+
+本项目为私有项目，仅限授权开发者贡献。
