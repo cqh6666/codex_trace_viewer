@@ -1,9 +1,12 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Codex Trace Viewer - Quick Start Script
 # This script helps you quickly start the application with various options
 
-set -e
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 # Colors for output
 RED='\033[0;31m'
@@ -18,6 +21,21 @@ PORT=3000
 CODEX_HOME=""
 SESSIONS_PATH=""
 ARCHIVED_PATH=""
+
+print_error() {
+    echo -e "${RED}Error: $1${NC}" >&2
+}
+
+require_option_value() {
+    local option="$1"
+    local value="${2-}"
+
+    if [[ -z "$value" || "$value" == -* ]]; then
+        print_error "Option $option requires a value"
+        print_usage
+        exit 1
+    fi
+}
 
 # Print banner
 print_banner() {
@@ -51,22 +69,27 @@ print_usage() {
 while [[ $# -gt 0 ]]; do
     case $1 in
         -m|--mode)
+            require_option_value "$1" "${2-}"
             MODE="$2"
             shift 2
             ;;
         -p|--port)
+            require_option_value "$1" "${2-}"
             PORT="$2"
             shift 2
             ;;
         -h|--home)
+            require_option_value "$1" "${2-}"
             CODEX_HOME="$2"
             shift 2
             ;;
         -s|--sessions)
+            require_option_value "$1" "${2-}"
             SESSIONS_PATH="$2"
             shift 2
             ;;
         -a|--archived)
+            require_option_value "$1" "${2-}"
             ARCHIVED_PATH="$2"
             shift 2
             ;;
@@ -85,7 +108,22 @@ done
 
 # Validate mode
 if [[ "$MODE" != "dev" && "$MODE" != "prod" ]]; then
-    echo -e "${RED}Error: Mode must be 'dev' or 'prod'${NC}"
+    print_error "Mode must be 'dev' or 'prod'"
+    exit 1
+fi
+
+if ! [[ "$PORT" =~ ^[0-9]+$ ]] || (( PORT < 1 || PORT > 65535 )); then
+    print_error "Port must be an integer between 1 and 65535"
+    exit 1
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+    print_error "npm is required but was not found in PATH"
+    exit 1
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+    print_error "node is required but was not found in PATH"
     exit 1
 fi
 
@@ -95,24 +133,28 @@ print_banner
 # Check if node_modules exists
 if [ ! -d "node_modules" ]; then
     echo -e "${YELLOW}📦 node_modules not found. Installing dependencies...${NC}"
-    npm install
+    if [ -f "package-lock.json" ]; then
+        npm ci
+    else
+        npm install
+    fi
     echo -e "${GREEN}✓ Dependencies installed${NC}"
     echo ""
 fi
 
-# Build environment variables
-ENV_VARS="PORT=$PORT"
+# Build server arguments
+SERVER_ARGS=(--port "$PORT")
 
 if [ -n "$CODEX_HOME" ]; then
-    ENV_VARS="$ENV_VARS CODEX_HOME=$CODEX_HOME"
+    SERVER_ARGS+=(--codex-home "$CODEX_HOME")
 fi
 
 if [ -n "$SESSIONS_PATH" ]; then
-    ENV_VARS="$ENV_VARS CODEX_SESSIONS_PATH=$SESSIONS_PATH"
+    SERVER_ARGS+=(--sessions "$SESSIONS_PATH")
 fi
 
 if [ -n "$ARCHIVED_PATH" ]; then
-    ENV_VARS="$ENV_VARS CODEX_ARCHIVED_PATH=$ARCHIVED_PATH"
+    SERVER_ARGS+=(--archived "$ARCHIVED_PATH")
 fi
 
 # Print configuration
@@ -141,7 +183,7 @@ if [ "$MODE" = "dev" ]; then
     echo -e "${GREEN}🚀 Starting development server...${NC}"
     echo -e "${BLUE}   Access the app at: http://localhost:$PORT${NC}"
     echo ""
-    eval "$ENV_VARS npm run dev"
+    node ./start-server.cjs "${SERVER_ARGS[@]}"
 else
     # Production mode
     if [ ! -d "dist" ]; then
@@ -154,5 +196,5 @@ else
     echo -e "${GREEN}🚀 Starting production server...${NC}"
     echo -e "${BLUE}   Access the app at: http://localhost:$PORT${NC}"
     echo ""
-    eval "$ENV_VARS npm start"
+    node ./start-server.cjs --mode prod "${SERVER_ARGS[@]}"
 fi

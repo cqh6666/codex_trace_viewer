@@ -84,7 +84,74 @@ interface ParsedConversationInternal {
   toolAnalyticsCounts: ToolAnalyticsCounts;
 }
 
-const PORT = Number(process.env.PORT || 3000);
+interface CliOptions {
+  archivedPath?: string;
+  codexHome?: string;
+  mode?: 'dev' | 'prod';
+  port?: number;
+  sessionsPath?: string;
+}
+
+function readCliValue(argv: string[], index: number, option: string): string {
+  const value = argv[index + 1];
+  if (!value || value.startsWith('-')) {
+    throw new Error(`Missing value for ${option}`);
+  }
+  return value;
+}
+
+function parseCliOptions(argv: string[]): CliOptions {
+  const options: CliOptions = {};
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
+    if (arg === '--') {
+      continue;
+    }
+
+    switch (arg) {
+      case '--mode': {
+        const value = readCliValue(argv, index, arg);
+        if (value !== 'dev' && value !== 'prod') {
+          throw new Error(`Invalid mode: ${value}`);
+        }
+        options.mode = value;
+        index += 1;
+        break;
+      }
+      case '--port': {
+        const value = Number(readCliValue(argv, index, arg));
+        if (!Number.isInteger(value) || value < 1 || value > 65535) {
+          throw new Error(`Invalid port: ${argv[index + 1]}`);
+        }
+        options.port = value;
+        index += 1;
+        break;
+      }
+      case '--codex-home':
+        options.codexHome = readCliValue(argv, index, arg);
+        index += 1;
+        break;
+      case '--sessions':
+        options.sessionsPath = readCliValue(argv, index, arg);
+        index += 1;
+        break;
+      case '--archived':
+        options.archivedPath = readCliValue(argv, index, arg);
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown argument: ${arg}`);
+    }
+  }
+
+  return options;
+}
+
+const CLI_OPTIONS = parseCliOptions(process.argv.slice(2));
+const PORT = CLI_OPTIONS.port ?? Number(process.env.PORT || 3000);
+const IS_PRODUCTION = CLI_OPTIONS.mode === 'prod' || process.env.NODE_ENV === 'production';
 const APP_DATA_ROOT = path.resolve(process.cwd(), 'data');
 const TOOL_CALL_RESPONSE_SUBTYPES = new Set([
   'function_call',
@@ -617,8 +684,8 @@ function shrinkForJson(value: any, maxDepth = 9, maxItems = 120, maxString = 120
 }
 
 function getTraceRoots(): {sessionsDir: string; archivedDir: string; codexHome: string | null} {
-  const explicitSessions = process.env.CODEX_SESSIONS_PATH;
-  const explicitArchived = process.env.CODEX_ARCHIVED_PATH;
+  const explicitSessions = CLI_OPTIONS.sessionsPath ?? process.env.CODEX_SESSIONS_PATH;
+  const explicitArchived = CLI_OPTIONS.archivedPath ?? process.env.CODEX_ARCHIVED_PATH;
   if (explicitSessions || explicitArchived) {
     return {
       sessionsDir: path.resolve(explicitSessions || './data/sessions'),
@@ -627,7 +694,7 @@ function getTraceRoots(): {sessionsDir: string; archivedDir: string; codexHome: 
     };
   }
 
-  const codexHome = path.resolve(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'));
+  const codexHome = path.resolve((CLI_OPTIONS.codexHome ?? process.env.CODEX_HOME) || path.join(os.homedir(), '.codex'));
   return {
     sessionsDir: path.join(codexHome, 'sessions'),
     archivedDir: path.join(codexHome, 'archived_sessions'),
@@ -1449,7 +1516,7 @@ async function startServer(): Promise<void> {
     });
   });
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (!IS_PRODUCTION) {
     const vite = await createViteServer({
       server: {middlewareMode: true},
       appType: 'spa',

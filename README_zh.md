@@ -22,12 +22,12 @@
 
 ## 前置要求
 
-- Node.js（推荐 v16 或更高版本）
+- Node.js（推荐 v18 或更高版本）
 
 ## 安装
 
 ```bash
-npm install
+npm ci
 ```
 
 ## 使用方法
@@ -74,22 +74,49 @@ chmod +x run.sh
 
 ```bash
 npm run dev
+
+# 带自定义参数的开发模式
+npm run dev -- --port 8080 --codex-home /path/to/.codex
 ```
 
 服务器将在 `http://localhost:3000` 启动。
 
-### 生产构建
+#### 生产模式
 
 ```bash
 npm run build
 npm start
+
+# 带自定义参数的生产模式
+npm start -- --port 8080 --sessions ./data/sessions --archived ./data/archived_sessions
 ```
 
 ### 配置
 
 默认情况下，后端从 `~/.codex/sessions` 和 `~/.codex/archived_sessions` 读取数据。
 
-要指向不同的追踪源，请使用环境变量：
+你可以通过三种方式配置追踪源和端口：
+
+- 推荐：使用 `run.sh` 的 `-p`、`-h`、`-s`、`-a` 等参数
+- 通过 `npm run dev -- --...` 或 `npm start -- --...` 直接传递服务端参数
+- 使用环境变量或 `.env` 文件
+
+当 CLI 参数和环境变量同时存在时，CLI 参数优先级更高。
+
+直接传递服务端参数的示例：
+
+```bash
+# 设置自定义 Codex 主目录
+npm run dev -- --codex-home /path/to/.codex
+
+# 或设置明确的会话目录
+npm start -- --sessions ./data/sessions --archived ./data/archived_sessions
+
+# 自定义端口
+npm run dev -- --port 8080
+```
+
+环境变量仍然受支持：
 
 ```bash
 # 设置自定义 Codex 主目录
@@ -144,6 +171,7 @@ codex-trace-viewer/
 │   └── lib/
 │       └── utils.ts      # 工具函数
 ├── server.ts             # Express 后端服务器
+├── start-server.cjs      # 加载 TypeScript 服务端的 Node 包装器
 ├── run.sh                # 快速启动脚本
 ├── data/                 # 默认数据目录
 ├── index.html            # HTML 模板
@@ -162,18 +190,21 @@ codex-trace-viewer/
 
 ```bash
 # 安装依赖
-npm install
+npm ci
 
-# 运行开发服务器（支持热重载）
+# 以开发模式运行完整应用
 npm run dev
 
 # 类型检查
 npm run lint
 
-# 生产构建
+# 构建生产环境前端资源
 npm run build
 
-# 预览生产构建
+# 以生产模式运行完整应用
+npm start
+
+# 仅预览前端静态资源（不包含后端 API）
 npm run preview
 
 # 清理构建产物
@@ -193,7 +224,10 @@ npm run clean
 
 如果端口 3000 已被占用：
 ```bash
-PORT=8080 npm run dev
+./run.sh -p 8080
+
+# 或
+npm run dev -- --port 8080
 ```
 
 ### 会话未更新

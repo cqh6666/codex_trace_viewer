@@ -22,12 +22,12 @@ The interface features a three-panel layout with session list, event timeline, a
 
 ## Prerequisites
 
-- Node.js (v16 or higher recommended)
+- Node.js (v18 or higher recommended)
 
 ## Installation
 
 ```bash
-npm install
+npm ci
 ```
 
 ## Usage
@@ -74,22 +74,49 @@ The script will:
 
 ```bash
 npm run dev
+
+# Development mode with custom options
+npm run dev -- --port 8080 --codex-home /path/to/.codex
 ```
 
 The server starts on `http://localhost:3000`.
 
-### Production Build
+#### Production Mode
 
 ```bash
 npm run build
 npm start
+
+# Production mode with custom options
+npm start -- --port 8080 --sessions ./data/sessions --archived ./data/archived_sessions
 ```
 
 ### Configuration
 
-By default, the backend reads from `~/.codex/sessions` and `~/.codex/archived_sessions`. 
+By default, the backend reads from `~/.codex/sessions` and `~/.codex/archived_sessions`.
 
-To point it at a different trace source, use environment variables:
+You can configure the trace source and port in three ways:
+
+- Recommended: use `run.sh` flags such as `-p`, `-h`, `-s`, and `-a`
+- Use direct server flags with `npm run dev -- --...` or `npm start -- --...`
+- Use environment variables or a `.env` file
+
+When both CLI flags and environment variables are provided, CLI flags take precedence.
+
+Examples with direct server flags:
+
+```bash
+# Set custom Codex home directory
+npm run dev -- --codex-home /path/to/.codex
+
+# Or set explicit session directories
+npm start -- --sessions ./data/sessions --archived ./data/archived_sessions
+
+# Custom port
+npm run dev -- --port 8080
+```
+
+Environment variables are still supported:
 
 ```bash
 # Set custom Codex home directory
@@ -144,6 +171,7 @@ codex-trace-viewer/
 │   └── lib/
 │       └── utils.ts      # Utility functions
 ├── server.ts             # Express backend server
+├── start-server.cjs      # Node wrapper that loads the TypeScript server
 ├── run.sh                # Quick start script
 ├── data/                 # Default data directory
 ├── index.html            # HTML template
@@ -162,18 +190,21 @@ codex-trace-viewer/
 
 ```bash
 # Install dependencies
-npm install
+npm ci
 
-# Run development server with hot reload
+# Run the full application in development mode
 npm run dev
 
 # Type checking
 npm run lint
 
-# Build for production
+# Build frontend assets for production
 npm run build
 
-# Preview production build
+# Run the full application in production mode
+npm start
+
+# Preview frontend assets only (does not expose backend APIs)
 npm run preview
 
 # Clean build artifacts
@@ -193,7 +224,10 @@ If the viewer shows no sessions:
 
 If port 3000 is already occupied:
 ```bash
-PORT=8080 npm run dev
+./run.sh -p 8080
+
+# or
+npm run dev -- --port 8080
 ```
 
 ### Sessions not updating
