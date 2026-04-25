@@ -124,6 +124,46 @@ function formatContextMetric(tokens: number | null | undefined) {
   return formatCompactMetric(tokens / 1000000, 'm');
 }
 
+function getContextUtilizationTone(fillPercent: number | null) {
+  if (fillPercent === null || !Number.isFinite(fillPercent)) {
+    return {
+      label: 'Unknown',
+      helper: 'Missing model context window',
+      badgeClass: 'border-border-subtle bg-bg-base text-text-muted',
+      fillClass: 'bg-text-muted/40',
+      helperClass: 'text-text-muted',
+    };
+  }
+
+  if (fillPercent < 60) {
+    return {
+      label: 'Healthy',
+      helper: 'Plenty of headroom for follow-up turns',
+      badgeClass: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300',
+      fillClass: 'bg-emerald-500',
+      helperClass: 'text-emerald-300/80',
+    };
+  }
+
+  if (fillPercent < 85) {
+    return {
+      label: 'Watch',
+      helper: 'Latency and long-context tradeoffs start to matter',
+      badgeClass: 'border-amber-500/25 bg-amber-500/10 text-amber-300',
+      fillClass: 'bg-amber-400',
+      helperClass: 'text-amber-300/80',
+    };
+  }
+
+  return {
+    label: 'Near Limit',
+    helper: 'Trim or compact before larger tool/output turns',
+    badgeClass: 'border-rose-500/25 bg-rose-500/10 text-rose-300',
+    fillClass: 'bg-rose-500',
+    helperClass: 'text-rose-300/80',
+  };
+}
+
 function useElementSize<T extends HTMLElement>(active = true) {
   const ref = React.useRef<T | null>(null);
   const [size, setSize] = React.useState({ width: 0, height: 0 });
@@ -1071,6 +1111,7 @@ export default function App() {
   const contextFillWidth = contextFillPercent !== null && Number.isFinite(contextFillPercent)
     ? Math.min(100, Math.max(0, contextFillPercent))
     : 0;
+  const contextUtilizationTone = getContextUtilizationTone(contextFillPercent);
   const handleCopyThreadId = React.useCallback(async () => {
     if (!threadId || threadId === 'Unknown') return;
 
@@ -1319,14 +1360,27 @@ export default function App() {
                     </div>
                     <div className="space-y-1">
                       <div className="text-[9px] uppercase font-bold text-text-muted tracking-wide">Context Utilization</div>
-                      <div className="text-[12px] font-mono text-text-bright" title={contextUtilizationTitle}>
-                        {peakTokensLabel} / {contextWindowLabel}
-                        <span className="text-brand-orange text-[10px] ml-2">
-                          ({contextFillPercentLabel === null ? 'Unknown' : `${contextFillPercentLabel}%`})
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="text-[12px] font-mono text-text-bright min-w-0" title={contextUtilizationTitle}>
+                          {peakTokensLabel} / {contextWindowLabel}
+                        </div>
+                        <span
+                          className={cn(
+                            "inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                            contextUtilizationTone.badgeClass
+                          )}
+                        >
+                          {contextFillPercentLabel === null ? 'Unknown' : `${contextFillPercentLabel}%`} {contextUtilizationTone.label}
                         </span>
                       </div>
-                      <div className="w-full h-1 bg-border-subtle rounded-full overflow-hidden">
-                        <div className="bg-brand-orange h-full" style={{ width: `${contextFillWidth}%` }}></div>
+                      <div className="w-full h-1.5 bg-border-subtle rounded-full overflow-hidden">
+                        <div
+                          className={cn("h-full transition-colors", contextUtilizationTone.fillClass)}
+                          style={{ width: `${contextFillWidth}%` }}
+                        ></div>
+                      </div>
+                      <div className={cn("text-[10px]", contextUtilizationTone.helperClass)}>
+                        {contextUtilizationTone.helper}
                       </div>
                     </div>
                     <div className="space-y-1">
