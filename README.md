@@ -163,8 +163,10 @@ Click the refresh button in the header or restart the dev server to reload sessi
 
 ## License
 
-This project is private and not licensed for public use.
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Contributing
 
-This is a private project. Contributions are limited to authorized developers.
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+For major changes, please open an issue first to discuss what you would like to change.
