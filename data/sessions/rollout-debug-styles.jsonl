@@ -1,0 +1,8 @@
+{"timestamp": "2024-03-20T10:00:00Z", "type": "session_meta", "payload": {"title": "Debug Frontend Styles", "thread_id": "thread_123", "model": "gemini-1.5-pro", "cwd": "/home/user/project", "origin": "user"}}
+{"timestamp": "2024-03-20T10:00:01Z", "type": "message", "payload": {"role": "user", "content": "How do I fix the overflow in my tailwind layout?", "turn_index": 0}}
+{"timestamp": "2024-03-20T10:00:02Z", "type": "reasoning", "payload": {"content": "Checking the layout structure...", "turn_index": 0}}
+{"timestamp": "2024-03-20T10:00:03Z", "type": "token_count", "payload": {"total": 1200, "prompt": 800, "completion": 400}}
+{"timestamp": "2024-03-20T10:00:04Z", "type": "tool_call", "payload": {"name": "ls", "arguments": {"path": "."}, "call_id": "call_1"}}
+{"timestamp": "2024-03-20T10:00:05Z", "type": "tool_result", "payload": {"content": "src, public, package.json", "call_id": "call_1"}}
+{"timestamp": "2024-03-20T10:00:06Z", "type": "message", "payload": {"role": "assistant", "content": "You can use the `overflow-hidden` class on your container.", "turn_index": 0}}
+{"timestamp": "2024-03-20T10:00:10Z", "type": "message", "payload": {"role": "user", "content": "Thanks! Another question...", "turn_index": 1}}

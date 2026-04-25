@@ -1,0 +1,6 @@
+{
+  "name": "Codex Trace Viewer",
+  "description": "A professional tool for analyzing Codex rollout traces, featuring session index, token trajectory, tool usage analytics, and a semantic event timeline.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

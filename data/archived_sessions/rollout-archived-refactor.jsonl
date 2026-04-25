@@ -1,0 +1,6 @@
+{"timestamp": "2024-03-18T14:20:00Z", "type": "session_meta", "payload": {"title": "Refactor Backend Service", "thread_id": "thread_999", "model": "gemini-1.5-flash", "cwd": "/home/user/api-server", "origin": "automation"}}
+{"timestamp": "2024-03-18T14:20:01Z", "type": "message", "payload": {"role": "user", "content": "Auto-review the PR #42", "turn_index": 0}}
+{"timestamp": "2024-03-18T14:20:02Z", "type": "token_count", "payload": {"total": 5000, "prompt": 4500, "completion": 500}}
+{"timestamp": "2024-03-18T14:20:03Z", "type": "compaction", "payload": {"before": 5000, "after": 2000, "removed": 3000}}
+{"timestamp": "2024-03-18T14:20:04Z", "type": "token_count", "payload": {"total": 2000, "prompt": 1500, "completion": 500}}
+{"timestamp": "2024-03-18T14:20:05Z", "type": "message", "payload": {"role": "assistant", "content": "I've reviewed the code. Here are the suggestions...", "turn_index": 0}}
