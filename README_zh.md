@@ -32,7 +32,45 @@ npm install
 
 ## 使用方法
 
-### 开发模式
+### 快速启动（推荐）
+
+使用提供的 `run.sh` 脚本轻松启动：
+
+```bash
+# 添加执行权限（仅首次需要）
+chmod +x run.sh
+
+# 以开发模式启动（默认）
+./run.sh
+
+# 以生产模式启动
+./run.sh -m prod
+
+# 使用自定义端口
+./run.sh -p 8080
+
+# 使用自定义 Codex 主目录
+./run.sh -h /path/to/.codex
+
+# 使用自定义会话路径
+./run.sh -s ./data/sessions -a ./data/archived
+
+# 组合多个选项
+./run.sh -m prod -p 8080 -h /custom/codex/path
+
+# 显示帮助信息
+./run.sh --help
+```
+
+脚本会自动：
+- 检查并安装依赖（如需要）
+- 在生产模式下自动构建项目
+- 使用指定配置启动服务器
+- 显示美观的配置信息横幅
+
+### 手动启动
+
+#### 开发模式
 
 ```bash
 npm run dev
@@ -106,6 +144,7 @@ codex-trace-viewer/
 │   └── lib/
 │       └── utils.ts      # 工具函数
 ├── server.ts             # Express 后端服务器
+├── run.sh                # 快速启动脚本
 ├── data/                 # 默认数据目录
 ├── index.html            # HTML 模板
 ├── vite.config.ts        # Vite 配置

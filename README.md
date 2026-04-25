@@ -32,7 +32,45 @@ npm install
 
 ## Usage
 
-### Development Mode
+### Quick Start (Recommended)
+
+Use the provided `run.sh` script for easy startup:
+
+```bash
+# Make the script executable (first time only)
+chmod +x run.sh
+
+# Start in development mode (default)
+./run.sh
+
+# Start in production mode
+./run.sh -m prod
+
+# Use custom port
+./run.sh -p 8080
+
+# Use custom Codex home directory
+./run.sh -h /path/to/.codex
+
+# Use custom session paths
+./run.sh -s ./data/sessions -a ./data/archived
+
+# Combine options
+./run.sh -m prod -p 8080 -h /custom/codex/path
+
+# Show help
+./run.sh --help
+```
+
+The script will:
+- Automatically install dependencies if needed
+- Build the project in production mode if required
+- Start the server with your specified configuration
+- Display a nice banner with configuration details
+
+### Manual Start
+
+#### Development Mode
 
 ```bash
 npm run dev
@@ -106,6 +144,7 @@ codex-trace-viewer/
 │   └── lib/
 │       └── utils.ts      # Utility functions
 ├── server.ts             # Express backend server
+├── run.sh                # Quick start script
 ├── data/                 # Default data directory
 ├── index.html            # HTML template
 ├── vite.config.ts        # Vite configuration
