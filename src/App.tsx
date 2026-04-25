@@ -115,15 +115,37 @@ function useElementSize<T extends HTMLElement>(active = true) {
 function useVirtualWindow(count: number, rowHeight: number, enabled: boolean) {
   const { ref, size } = useElementSize<HTMLDivElement>(enabled);
   const [scrollTop, setScrollTop] = React.useState(0);
+  const frameRef = React.useRef<number | null>(null);
+  const pendingScrollTopRef = React.useRef(0);
 
   React.useEffect(() => {
+    if (frameRef.current !== null) {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+    pendingScrollTopRef.current = 0;
     setScrollTop(0);
   }, [count, enabled]);
+
+  React.useEffect(() => () => {
+    if (frameRef.current !== null) {
+      window.cancelAnimationFrame(frameRef.current);
+    }
+  }, []);
 
   const onScroll = React.useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
       if (!enabled) return;
-      setScrollTop(event.currentTarget.scrollTop);
+      pendingScrollTopRef.current = event.currentTarget.scrollTop;
+      if (frameRef.current !== null) {
+        return;
+      }
+      frameRef.current = window.requestAnimationFrame(() => {
+        frameRef.current = null;
+        setScrollTop((current) => (
+          current === pendingScrollTopRef.current ? current : pendingScrollTopRef.current
+        ));
+      });
     },
     [enabled]
   );
@@ -150,6 +172,366 @@ function useVirtualWindow(count: number, rowHeight: number, enabled: boolean) {
   };
 }
 
+interface SessionSidebarProps {
+  filteredSessionCount: number;
+  selectedSession: string | null;
+  visibleSessions: ConversationSummary[];
+  onLoadMore: () => void;
+  onSelectSession: (sessionId: string) => void;
+}
+
+const SessionSidebar = React.memo(function SessionSidebar({
+  filteredSessionCount,
+  selectedSession,
+  visibleSessions,
+  onLoadMore,
+  onSelectSession,
+}: SessionSidebarProps) {
+  return (
+    <>
+      <div className="p-2 text-[10px] font-bold text-text-muted uppercase tracking-wider border-b border-border-subtle select-none">Recent Conversations</div>
+      <div className="flex-1 overflow-y-auto space-y-px p-1 no-scrollbar" style={{ contentVisibility: 'auto' }}>
+        {visibleSessions.map((session) => (
+          <button
+            key={session.id}
+            onClick={() => onSelectSession(session.id)}
+            className={cn(
+              "w-full text-left p-2.5 rounded transition-all border border-transparent",
+              selectedSession === session.id
+                ? "bg-bg-elevated border-border-strong"
+                : "hover:bg-bg-surface/50"
+            )}
+          >
+            <div className="text-[11px] font-medium text-text-primary truncate mb-1">
+              {session.title}
+            </div>
+            <div className="flex justify-between items-baseline">
+              <span className="text-[9px] text-brand-orange font-mono truncate max-w-[140px] opacity-80">
+                {session.cwd}
+              </span>
+              <span className="text-[9px] text-text-muted whitespace-nowrap">
+                {formatTimestamp(session.updatedAt)}
+              </span>
+            </div>
+          </button>
+        ))}
+        {filteredSessionCount > visibleSessions.length && (
+          <button
+            onClick={onLoadMore}
+            className="w-full text-center p-2 rounded border border-dashed border-border-subtle text-[10px] uppercase tracking-wide text-text-muted hover:text-text-bright hover:border-text-muted transition-colors"
+          >
+            Load {Math.min(DEFAULT_SESSION_RENDER_LIMIT, filteredSessionCount - visibleSessions.length)} More
+          </button>
+        )}
+      </div>
+    </>
+  );
+});
+
+interface TimelineEventRowProps {
+  event: TraceEvent;
+  isFocusMode: boolean;
+  isSelected: boolean;
+  onSelectEvent: (event: TraceEvent) => void;
+}
+
+const TimelineEventRow = React.memo(function TimelineEventRow({
+  event,
+  isFocusMode,
+  isSelected,
+  onSelectEvent,
+}: TimelineEventRowProps) {
+  return (
+    <button
+      onClick={() => onSelectEvent(event)}
+      className={cn(
+        "w-full text-left p-2.5 transition-all border-l-2 relative group",
+        isSelected
+          ? "bg-bg-elevated border-brand-orange shadow-inner"
+          : "hover:bg-bg-surface/50 border-transparent",
+        event.type === 'compaction' && "bg-orange-950/10",
+        !isFocusMode && "h-[84px] border-b border-border-subtle",
+        isFocusMode && "mb-3 rounded-md border-y border-r border-border-subtle p-4"
+      )}
+    >
+      <div className="flex justify-between opacity-50 mb-1.5 text-[9px] tracking-tighter">
+        <span className="flex items-center gap-2">
+          <span className="bg-bg-surface px-1.5 rounded text-text-primary">#{(event.index ?? 0) + 1}</span>
+          {formatTimestamp(event.timestamp)}
+        </span>
+        <span className="uppercase">{event.type}</span>
+      </div>
+      <div className="flex gap-4 items-start">
+        <div className={cn(
+          "w-8 h-8 rounded shrink-0 flex items-center justify-center bg-bg-surface border border-border-subtle",
+          isSelected && "border-brand-orange/50"
+        )}>
+          <EventIcon category={event.category} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className={cn(
+            "font-bold uppercase text-[9px] tracking-tight mb-1",
+            event.category === 'message' && "text-brand-blue",
+            event.category === 'tool_call' && "text-brand-orange",
+            event.category === 'tool_result' && "text-emerald-500",
+            event.category === 'reasoning' && "text-purple-400",
+            event.category === 'token' && "text-sky-400",
+            event.category === 'context' && "text-amber-400",
+            event.category === 'system' && "text-fuchsia-400",
+            event.category === 'compaction' && "text-orange-500"
+          )}>
+            {(event.subtype || event.type).replace('_count', '').replace(/_/g, ' ')}
+          </div>
+          {isFocusMode ? (
+            <div className="mt-2 text-text-primary text-[11px] leading-relaxed break-words">
+              {renderImmersivePreview(event)}
+            </div>
+          ) : (
+            <div className="text-text-secondary truncate text-[11px]">
+              {renderEventSimplePreview(event)}
+            </div>
+          )}
+        </div>
+      </div>
+    </button>
+  );
+});
+
+interface TimelinePanelProps {
+  eventRenderLimit: number;
+  filter: TraceEvent['category'][];
+  filteredEventCount: number;
+  hiddenEventCount: number;
+  isFocusMode: boolean;
+  selectedEventId: string | null;
+  showAllEvents: boolean;
+  timelineEvents: TraceEvent[];
+  onClearFilter: () => void;
+  onSelectEvent: (event: TraceEvent) => void;
+  onToggleFilter: (category: TraceEvent['category']) => void;
+  onToggleShowAllEvents: () => void;
+}
+
+const TimelinePanel = React.memo(function TimelinePanel({
+  eventRenderLimit,
+  filter,
+  filteredEventCount,
+  hiddenEventCount,
+  isFocusMode,
+  selectedEventId,
+  showAllEvents,
+  timelineEvents,
+  onClearFilter,
+  onSelectEvent,
+  onToggleFilter,
+  onToggleShowAllEvents,
+}: TimelinePanelProps) {
+  const shouldVirtualizeTimeline = !isFocusMode;
+  const timelineWindow = useVirtualWindow(timelineEvents.length, TIMELINE_ROW_HEIGHT, shouldVirtualizeTimeline);
+  const renderedTimelineEvents = React.useMemo(
+    () => shouldVirtualizeTimeline
+      ? timelineWindow.indexes.map((index) => timelineEvents[index]).filter(Boolean)
+      : timelineEvents,
+    [shouldVirtualizeTimeline, timelineEvents, timelineWindow.indexes]
+  );
+  const timelineStartSpacer = shouldVirtualizeTimeline ? timelineWindow.startIndex * TIMELINE_ROW_HEIGHT : 0;
+  const timelineEndSpacer = shouldVirtualizeTimeline
+    ? Math.max(0, (timelineEvents.length - timelineWindow.endIndex) * TIMELINE_ROW_HEIGHT)
+    : 0;
+
+  return (
+    <section className={cn(
+      "border-r border-border-subtle flex flex-col shrink-0 transition-all duration-500 ease-in-out",
+      isFocusMode
+        ? (selectedEventId ? "w-[400px]" : "w-full max-w-5xl mx-auto border-r-0")
+        : "w-[400px]"
+    )}>
+      <div className="p-2 flex gap-1 border-b border-border-subtle bg-bg-surface items-center justify-between">
+        <div className="flex gap-1">
+          <button
+            onClick={onClearFilter}
+            className={cn("px-2 py-0.5 rounded text-[10px] transition-colors", filter.length === 0 ? "bg-border-subtle text-text-bright" : "hover:bg-border-subtle text-text-muted")}
+          >
+            All
+          </button>
+          {EVENT_FILTERS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => onToggleFilter(key)}
+              className={cn(
+                "px-2 py-0.5 rounded text-[10px] transition-colors capitalize",
+                filter.includes(key) ? "bg-border-subtle text-text-bright" : "hover:bg-border-subtle text-text-muted"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          {hiddenEventCount > 0 && (
+            <button
+              onClick={onToggleShowAllEvents}
+              className="text-[10px] uppercase font-bold text-text-muted hover:text-text-bright transition-colors"
+            >
+              {showAllEvents ? `Recent ${eventRenderLimit}` : `All +${hiddenEventCount}`}
+            </button>
+          )}
+          {isFocusMode && (
+            <span className="text-[10px] font-bold text-text-muted flex items-center gap-2">
+              <Terminal className="w-3 h-3" /> TRACE STREAM
+            </span>
+          )}
+        </div>
+      </div>
+      <div
+        className={cn(
+          "flex-1 overflow-y-auto font-mono text-[11px] no-scrollbar transition-all",
+          !shouldVirtualizeTimeline && "divide-y divide-border-subtle",
+          isFocusMode && "px-4 pt-4"
+        )}
+        ref={timelineWindow.containerRef}
+        onScroll={timelineWindow.onScroll}
+        style={{ contentVisibility: 'auto' }}
+      >
+        {timelineStartSpacer > 0 && <div style={{ height: timelineStartSpacer }} />}
+        {renderedTimelineEvents.map((event) => (
+          <TimelineEventRow
+            key={event.id}
+            event={event}
+            isFocusMode={isFocusMode}
+            isSelected={selectedEventId === event.id}
+            onSelectEvent={onSelectEvent}
+          />
+        ))}
+        {timelineEndSpacer > 0 && <div style={{ height: timelineEndSpacer }} />}
+        {filteredEventCount === 0 && (
+          <div className="p-4 text-text-muted text-[11px] italic">
+            No events match the current filter.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+});
+
+interface InspectorPanelProps {
+  isEventDetailLoading: boolean;
+  isFocusMode: boolean;
+  selectedEvent: TraceEvent | null;
+  selectedEventDetail: EventDetail | null;
+  onClose: () => void;
+}
+
+const InspectorPanel = React.memo(function InspectorPanel({
+  isEventDetailLoading,
+  isFocusMode,
+  selectedEvent,
+  selectedEventDetail,
+  onClose,
+}: InspectorPanelProps) {
+  const inspectorPayload = selectedEventDetail?.raw ?? selectedEvent?.raw ?? selectedEvent?.payload;
+  const inspectorPayloadText = React.useMemo(
+    () => stringifyForDisplay(inspectorPayload),
+    [inspectorPayload]
+  );
+  const renderedInspectorPayload = React.useMemo(
+    () => renderJSONPayload(inspectorPayload),
+    [inspectorPayload]
+  );
+  const renderedStructuredDetail = React.useMemo(
+    () => (selectedEvent ? renderStructuredDetail(selectedEvent) : null),
+    [selectedEvent]
+  );
+  const renderedFormattedContent = React.useMemo(
+    () => (selectedEvent ? renderFormattedContent(selectedEvent) : null),
+    [selectedEvent]
+  );
+  const handleCopyPayload = React.useCallback(() => {
+    void navigator.clipboard.writeText(inspectorPayloadText);
+  }, [inspectorPayloadText]);
+
+  return (
+    <section className={cn(
+      "flex flex-col bg-bg-base overflow-hidden transition-all duration-500 ease-in-out shadow-[-20px_0_40px_rgba(0,0,0,0.3)]",
+      isFocusMode
+        ? (selectedEvent ? "flex-1 border-l border-border-subtle" : "w-0 opacity-0 pointer-events-none")
+        : "flex-1 border-l border-border-subtle"
+    )}>
+      <div className="p-2 border-b border-border-subtle bg-bg-surface flex justify-between items-center shrink-0">
+        <span className="text-[10px] font-bold uppercase text-text-secondary tracking-widest">Inspector</span>
+        {selectedEvent && (
+          <div className="flex gap-3">
+            <button
+              className="text-[10px] text-brand-blue hover:text-white transition-colors"
+              onClick={handleCopyPayload}
+            >
+              Copy JSON
+            </button>
+            {isFocusMode && <button className="text-text-muted hover:text-white transition-colors" onClick={onClose}>Close</button>}
+          </div>
+        )}
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
+        <AnimatePresence mode="wait">
+          {selectedEvent ? (
+            <motion.div
+              key={selectedEvent.id}
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="space-y-6"
+            >
+              <div>
+                <h3 className="text-brand-orange text-[10px] font-bold mb-2 uppercase tracking-widest">Structured Information</h3>
+                <div className="grid grid-cols-[100px_1fr] gap-y-2 text-[11px] border border-border-subtle p-3 rounded bg-bg-base">
+                  <div className="text-text-muted">Event Type</div>
+                  <div className="font-mono text-text-primary">{selectedEvent.type}</div>
+                  {selectedEvent.call_id && (
+                    <>
+                      <div className="text-text-muted">Call ID</div>
+                      <div className="font-mono text-text-primary">{selectedEvent.call_id}</div>
+                    </>
+                  )}
+                  <div className="text-text-muted">Category</div>
+                  <div className="font-mono text-text-primary">{selectedEvent.category}</div>
+                  <div className="text-text-muted">Timestamp</div>
+                  <div className="text-text-secondary font-mono">{selectedEvent.timestamp}</div>
+                  {renderedStructuredDetail}
+                </div>
+              </div>
+
+              {renderedFormattedContent}
+
+              <div>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <h3 className="text-text-secondary text-[10px] font-bold uppercase tracking-widest">Raw JSON Payload</h3>
+                  <span className="text-[10px] text-text-muted">
+                    {isEventDetailLoading
+                      ? 'Loading full event...'
+                      : selectedEventDetail
+                        ? (selectedEventDetail.raw_truncated ? 'Truncated source' : 'Full source')
+                        : 'Normalized payload'}
+                  </span>
+                </div>
+                <div className="bg-black p-4 rounded border border-border-subtle font-mono text-[11px] leading-relaxed overflow-x-auto">
+                  <pre className="text-text-bright/90 whitespace-pre">
+                    {renderedInspectorPayload}
+                  </pre>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-text-muted text-center px-12 italic">
+              <Activity className="w-10 h-10 mb-3 opacity-10" />
+              <p className="text-xs">Select an event in the timeline index to inspect payload structure and relational metadata.</p>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+    </section>
+  );
+});
+
 export default function App() {
   const [sessions, setSessions] = React.useState<ConversationSummary[]>([]);
   const [selectedSession, setSelectedSession] = React.useState<string | null>(null);
@@ -161,7 +543,7 @@ export default function App() {
   const deferredSearch = React.useDeferredValue(search.trim());
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
-  const [filter, setFilter] = React.useState<string[]>([]);
+  const [filter, setFilter] = React.useState<TraceEvent['category'][]>([]);
   const [isArchivedView, setIsArchivedView] = React.useState(false);
   const [isFocusMode, setIsFocusMode] = React.useState(false);
   const [toolScope, setToolScope] = React.useState<'session' | 'global'>('session');
@@ -375,9 +757,11 @@ export default function App() {
     setSessionRenderLimit(DEFAULT_SESSION_RENDER_LIMIT);
   }, [deferredSearch, isArchivedView]);
 
+  const filterKey = filter.join('|');
+
   React.useEffect(() => {
     setShowAllEvents(false);
-  }, [selectedSession, isFocusMode, filter.join('|')]);
+  }, [selectedSession, isFocusMode, filterKey]);
 
   const filteredSessions = React.useMemo(
     () => sessions.filter((session) => (isArchivedView ? session.isArchived : !session.isArchived)),
@@ -407,35 +791,27 @@ export default function App() {
     : (parsedData?.toolStats || []);
   const visibleToolMax = visibleToolRows[0]?.count || 1;
   const toolRootsPreview = visibleToolAnalytics?.top_command_roots?.slice(0, 3).map(item => item.name).join(', ');
-  const inspectorPayload = selectedEventDetail?.raw ?? selectedEvent?.raw ?? selectedEvent?.payload;
-  const inspectorPayloadText = React.useMemo(
-    () => stringifyForDisplay(inspectorPayload),
-    [inspectorPayload]
-  );
-  const renderedInspectorPayload = React.useMemo(
-    () => renderJSONPayload(inspectorPayload),
-    [inspectorPayload]
-  );
-  const renderedStructuredDetail = React.useMemo(
-    () => (selectedEvent ? renderStructuredDetail(selectedEvent) : null),
-    [selectedEvent]
-  );
-  const renderedFormattedContent = React.useMemo(
-    () => (selectedEvent ? renderFormattedContent(selectedEvent) : null),
-    [selectedEvent]
-  );
-  const shouldVirtualizeTimeline = !isFocusMode;
-  const timelineWindow = useVirtualWindow(timelineEvents.length, TIMELINE_ROW_HEIGHT, shouldVirtualizeTimeline);
-  const renderedTimelineEvents = React.useMemo(
-    () => shouldVirtualizeTimeline
-      ? timelineWindow.indexes.map((index) => timelineEvents[index]).filter(Boolean)
-      : timelineEvents,
-    [shouldVirtualizeTimeline, timelineEvents, timelineWindow.indexes]
-  );
-  const timelineStartSpacer = shouldVirtualizeTimeline ? timelineWindow.startIndex * TIMELINE_ROW_HEIGHT : 0;
-  const timelineEndSpacer = shouldVirtualizeTimeline
-    ? Math.max(0, (timelineEvents.length - timelineWindow.endIndex) * TIMELINE_ROW_HEIGHT)
-    : 0;
+  const handleSelectSession = React.useCallback((sessionId: string) => {
+    React.startTransition(() => setSelectedSession(sessionId));
+  }, []);
+  const handleLoadMoreSessions = React.useCallback(() => {
+    setSessionRenderLimit((current) => current + DEFAULT_SESSION_RENDER_LIMIT);
+  }, []);
+  const handleClearFilter = React.useCallback(() => {
+    setFilter([]);
+  }, []);
+  const handleToggleFilter = React.useCallback((category: TraceEvent['category']) => {
+    setFilter((current) => (current[0] === category ? [] : [category]));
+  }, []);
+  const handleToggleShowAllEvents = React.useCallback(() => {
+    setShowAllEvents((current) => !current);
+  }, []);
+  const handleSelectEvent = React.useCallback((event: TraceEvent) => {
+    React.startTransition(() => setSelectedEvent(event));
+  }, []);
+  const handleCloseInspector = React.useCallback(() => {
+    setSelectedEvent(null);
+  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-bg-base text-text-primary overflow-hidden font-sans">
@@ -506,41 +882,13 @@ export default function App() {
               exit={{ width: 0, opacity: 0 }}
               className="border-r border-border-subtle flex flex-col shrink-0 bg-bg-deep overflow-hidden"
             >
-              <div className="p-2 text-[10px] font-bold text-text-muted uppercase tracking-wider border-b border-border-subtle select-none">Recent Conversations</div>
-              <div className="flex-1 overflow-y-auto space-y-px p-1 no-scrollbar" style={{ contentVisibility: 'auto' }}>
-                {visibleSessions.map((session) => (
-                  <button
-                    key={session.id}
-                    onClick={() => React.startTransition(() => setSelectedSession(session.id))}
-                    className={cn(
-                      "w-full text-left p-2.5 rounded transition-all border border-transparent",
-                      selectedSession === session.id 
-                        ? "bg-bg-elevated border-border-strong" 
-                        : "hover:bg-bg-surface/50"
-                    )}
-                  >
-                    <div className="text-[11px] font-medium text-text-primary truncate mb-1">
-                      {session.title}
-                    </div>
-                    <div className="flex justify-between items-baseline">
-                      <span className="text-[9px] text-brand-orange font-mono truncate max-w-[140px] opacity-80">
-                        {session.cwd}
-                      </span>
-                      <span className="text-[9px] text-text-muted whitespace-nowrap">
-                        {formatTimestamp(session.updatedAt)}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-                {filteredSessions.length > visibleSessions.length && (
-                  <button
-                    onClick={() => setSessionRenderLimit((current) => current + DEFAULT_SESSION_RENDER_LIMIT)}
-                    className="w-full text-center p-2 rounded border border-dashed border-border-subtle text-[10px] uppercase tracking-wide text-text-muted hover:text-text-bright hover:border-text-muted transition-colors"
-                  >
-                    Load {Math.min(DEFAULT_SESSION_RENDER_LIMIT, filteredSessions.length - visibleSessions.length)} More
-                  </button>
-                )}
-              </div>
+              <SessionSidebar
+                filteredSessionCount={filteredSessions.length}
+                selectedSession={selectedSession}
+                visibleSessions={visibleSessions}
+                onLoadMore={handleLoadMoreSessions}
+                onSelectSession={handleSelectSession}
+              />
             </motion.aside>
           )}
         </AnimatePresence>
@@ -674,202 +1022,28 @@ export default function App() {
 
             {/* Event Explorer Split */}
             <div className={cn("flex-1 flex overflow-hidden", isFocusMode && "bg-bg-deep")}>
-                {/* Timeline Events List */}
-                <section className={cn(
-                  "border-r border-border-subtle flex flex-col shrink-0 transition-all duration-500 ease-in-out",
-                  isFocusMode 
-                    ? (selectedEvent ? "w-[400px]" : "w-full max-w-5xl mx-auto border-r-0") 
-                    : "w-[400px]"
-                )}>
-                  <div className="p-2 flex gap-1 border-b border-border-subtle bg-bg-surface items-center justify-between">
-                    <div className="flex gap-1">
-                      <button 
-                        onClick={() => setFilter([])} 
-                        className={cn("px-2 py-0.5 rounded text-[10px] transition-colors", filter.length === 0 ? "bg-border-subtle text-text-bright" : "hover:bg-border-subtle text-text-muted")}
-                      >
-                        All
-                      </button>
-                      {EVENT_FILTERS.map(({ key, label }) => (
-                        <button
-                          key={key}
-                          onClick={() => setFilter((current) => (current[0] === key ? [] : [key]))}
-                          className={cn(
-                            "px-2 py-0.5 rounded text-[10px] transition-colors capitalize",
-                            filter.includes(key) ? "bg-border-subtle text-text-bright" : "hover:bg-border-subtle text-text-muted"
-                          )}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {hiddenEventCount > 0 && (
-                        <button
-                          onClick={() => setShowAllEvents((current) => !current)}
-                          className="text-[10px] uppercase font-bold text-text-muted hover:text-text-bright transition-colors"
-                        >
-                          {showAllEvents ? `Recent ${eventRenderLimit}` : `All +${hiddenEventCount}`}
-                        </button>
-                      )}
-                      {isFocusMode && (
-                        <span className="text-[10px] font-bold text-text-muted flex items-center gap-2">
-                          <Terminal className="w-3 h-3" /> TRACE STREAM
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className={cn(
-                    "flex-1 overflow-y-auto font-mono text-[11px] no-scrollbar transition-all",
-                    !shouldVirtualizeTimeline && "divide-y divide-border-subtle",
-                    isFocusMode && "px-4 pt-4"
-                  )} ref={timelineWindow.containerRef} onScroll={timelineWindow.onScroll} style={{ contentVisibility: 'auto' }}>
-                    {timelineStartSpacer > 0 && <div style={{ height: timelineStartSpacer }} />}
-                    {renderedTimelineEvents.map((event) => (
-                      <button
-                        key={event.id}
-                        onClick={() => React.startTransition(() => setSelectedEvent(event))}
-                        className={cn(
-                          "w-full text-left p-2.5 transition-all border-l-2 relative group",
-                          selectedEvent?.id === event.id 
-                            ? "bg-bg-elevated border-brand-orange shadow-inner" 
-                            : "hover:bg-bg-surface/50 border-transparent",
-                          event.type === 'compaction' && "bg-orange-950/10",
-                          !isFocusMode && "h-[84px] border-b border-border-subtle",
-                          isFocusMode && "mb-3 rounded-md border-y border-r border-border-subtle p-4"
-                        )}
-                      >
-                        <div className="flex justify-between opacity-50 mb-1.5 text-[9px] tracking-tighter">
-                          <span className="flex items-center gap-2">
-                            <span className="bg-bg-surface px-1.5 rounded text-text-primary">#{(event.index ?? 0) + 1}</span>
-                            {formatTimestamp(event.timestamp)}
-                          </span>
-                          <span className="uppercase">{event.type}</span>
-                        </div>
-                        <div className="flex gap-4 items-start">
-                          <div className={cn(
-                            "w-8 h-8 rounded shrink-0 flex items-center justify-center bg-bg-surface border border-border-subtle",
-                            selectedEvent?.id === event.id && "border-brand-orange/50"
-                          )}>
-                            <EventIcon category={event.category} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className={cn(
-                              "font-bold uppercase text-[9px] tracking-tight mb-1",
-                              event.category === 'message' && "text-brand-blue",
-                              event.category === 'tool_call' && "text-brand-orange",
-                              event.category === 'tool_result' && "text-emerald-500",
-                              event.category === 'reasoning' && "text-purple-400",
-                              event.category === 'token' && "text-sky-400",
-                              event.category === 'context' && "text-amber-400",
-                              event.category === 'system' && "text-fuchsia-400",
-                              event.category === 'compaction' && "text-orange-500"
-                            )}>
-                              {(event.subtype || event.type).replace('_count', '').replace(/_/g, ' ')}
-                            </div>
-                            
-                            {/* In focus mode, show content preview if it matches specific types */}
-                            {isFocusMode ? (
-                               <div className="mt-2 text-text-primary text-[11px] leading-relaxed break-words">
-                                 {renderImmersivePreview(event)}
-                               </div>
-                            ) : (
-                              <div className="text-text-secondary truncate text-[11px]">
-                                {renderEventSimplePreview(event)}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                    {timelineEndSpacer > 0 && <div style={{ height: timelineEndSpacer }} />}
-                    {filteredEvents.length === 0 && (
-                      <div className="p-4 text-text-muted text-[11px] italic">
-                        No events match the current filter.
-                      </div>
-                    )}
-                  </div>
-                </section>
+              <TimelinePanel
+                eventRenderLimit={eventRenderLimit}
+                filter={filter}
+                filteredEventCount={filteredEvents.length}
+                hiddenEventCount={hiddenEventCount}
+                isFocusMode={isFocusMode}
+                selectedEventId={selectedEvent?.id ?? null}
+                showAllEvents={showAllEvents}
+                timelineEvents={timelineEvents}
+                onClearFilter={handleClearFilter}
+                onSelectEvent={handleSelectEvent}
+                onToggleFilter={handleToggleFilter}
+                onToggleShowAllEvents={handleToggleShowAllEvents}
+              />
 
-                {/* Event Details Viewer (The Inspector) */}
-                <section className={cn(
-                  "flex flex-col bg-bg-base overflow-hidden transition-all duration-500 ease-in-out shadow-[-20px_0_40px_rgba(0,0,0,0.3)]",
-                  isFocusMode 
-                    ? (selectedEvent ? "flex-1 border-l border-border-subtle" : "w-0 opacity-0 pointer-events-none")
-                    : "flex-1 border-l border-border-subtle"
-                )}>
-                  <div className="p-2 border-b border-border-subtle bg-bg-surface flex justify-between items-center shrink-0">
-                    <span className="text-[10px] font-bold uppercase text-text-secondary tracking-widest">Inspector</span>
-                    {selectedEvent && (
-                      <div className="flex gap-3">
-                        <button
-                          className="text-[10px] text-brand-blue hover:text-white transition-colors"
-                          onClick={() => navigator.clipboard.writeText(inspectorPayloadText)}
-                        >
-                          Copy JSON
-                        </button>
-                        {isFocusMode && <button className="text-text-muted hover:text-white transition-colors" onClick={() => setSelectedEvent(null)}>Close</button>}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
-                    <AnimatePresence mode="wait">
-                      {selectedEvent ? (
-                        <motion.div
-                          key={selectedEvent.id}
-                          initial={{ opacity: 0, y: 5 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0 }}
-                          className="space-y-6"
-                        >
-                          <div>
-                            <h3 className="text-brand-orange text-[10px] font-bold mb-2 uppercase tracking-widest">Structured Information</h3>
-                            <div className="grid grid-cols-[100px_1fr] gap-y-2 text-[11px] border border-border-subtle p-3 rounded bg-bg-base">
-                              <div className="text-text-muted">Event Type</div>
-                              <div className="font-mono text-text-primary">{selectedEvent.type}</div>
-                              {selectedEvent.call_id && (
-                                <>
-                                  <div className="text-text-muted">Call ID</div>
-                                  <div className="font-mono text-text-primary">{selectedEvent.call_id}</div>
-                                </>
-                              )}
-                              <div className="text-text-muted">Category</div>
-                              <div className="font-mono text-text-primary">{selectedEvent.category}</div>
-                              <div className="text-text-muted">Timestamp</div>
-                              <div className="text-text-secondary font-mono">{selectedEvent.timestamp}</div>
-                              {renderedStructuredDetail}
-                            </div>
-                          </div>
-
-                          {/* New Formatted Content Section */}
-                          {renderedFormattedContent}
-
-                          <div>
-                            <div className="flex items-center justify-between gap-3 mb-2">
-                              <h3 className="text-text-secondary text-[10px] font-bold uppercase tracking-widest">Raw JSON Payload</h3>
-                              <span className="text-[10px] text-text-muted">
-                                {isEventDetailLoading
-                                  ? 'Loading full event...'
-                                  : selectedEventDetail
-                                    ? (selectedEventDetail.raw_truncated ? 'Truncated source' : 'Full source')
-                                    : 'Normalized payload'}
-                              </span>
-                            </div>
-                            <div className="bg-black p-4 rounded border border-border-subtle font-mono text-[11px] leading-relaxed overflow-x-auto">
-                              <pre className="text-text-bright/90 whitespace-pre">
-                                {renderedInspectorPayload}
-                              </pre>
-                            </div>
-                          </div>
-                        </motion.div>
-                      ) : (
-                        <div className="h-full flex flex-col items-center justify-center text-text-muted text-center px-12 italic">
-                          <Activity className="w-10 h-10 mb-3 opacity-10" />
-                          <p className="text-xs">Select an event in the timeline index to inspect payload structure and relational metadata.</p>
-                        </div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </section>
+              <InspectorPanel
+                isEventDetailLoading={isEventDetailLoading}
+                isFocusMode={isFocusMode}
+                selectedEvent={selectedEvent}
+                selectedEventDetail={selectedEventDetail}
+                onClose={handleCloseInspector}
+              />
               </div>
             </>
           ) : (
