@@ -306,6 +306,7 @@ interface TimelinePanelProps {
   selectedEventId: string | null;
   showAllEvents: boolean;
   timelineEvents: TraceEvent[];
+  timelineWidth: number;
   onClearFilter: () => void;
   onSelectEvent: (event: TraceEvent) => void;
   onToggleFilter: (category: TraceEvent['category']) => void;
@@ -321,6 +322,7 @@ const TimelinePanel = React.memo(function TimelinePanel({
   selectedEventId,
   showAllEvents,
   timelineEvents,
+  timelineWidth,
   onClearFilter,
   onSelectEvent,
   onToggleFilter,
@@ -339,13 +341,17 @@ const TimelinePanel = React.memo(function TimelinePanel({
     ? Math.max(0, (timelineEvents.length - timelineWindow.endIndex) * TIMELINE_ROW_HEIGHT)
     : 0;
 
+  const effectiveWidth = timelineWidth;
+
   return (
     <section className={cn(
-      "border-r border-border-subtle flex flex-col shrink-0 transition-all duration-500 ease-in-out",
+      "border-r border-border-subtle flex flex-col shrink-0",
       isFocusMode
-        ? (selectedEventId ? "w-[400px]" : "w-full max-w-5xl mx-auto border-r-0")
-        : "w-[400px]"
-    )}>
+        ? (selectedEventId ? "" : "w-full max-w-5xl mx-auto border-r-0")
+        : ""
+    )}
+    style={!isFocusMode || (isFocusMode && selectedEventId) ? { width: effectiveWidth } : undefined}
+    >
       <div className="p-2 flex gap-1 border-b border-border-subtle bg-bg-surface items-center justify-between">
         <div className="flex gap-1">
           <button
@@ -368,12 +374,15 @@ const TimelinePanel = React.memo(function TimelinePanel({
           ))}
         </div>
         <div className="flex items-center gap-2">
-          {hiddenEventCount > 0 && (
+          {filteredEventCount > eventRenderLimit && (
             <button
               onClick={onToggleShowAllEvents}
               className="text-[10px] uppercase font-bold text-text-muted hover:text-text-bright transition-colors"
             >
-              {showAllEvents ? `Recent ${eventRenderLimit}` : `All +${hiddenEventCount}`}
+              {showAllEvents
+                ? `${filteredEventCount} / ${filteredEventCount} · Collapse`
+                : `${eventRenderLimit} / ${filteredEventCount} · Show All`
+              }
             </button>
           )}
           {isFocusMode && (
@@ -550,6 +559,9 @@ export default function App() {
   const [isEventDetailLoading, setIsEventDetailLoading] = React.useState(false);
   const [sessionRenderLimit, setSessionRenderLimit] = React.useState(DEFAULT_SESSION_RENDER_LIMIT);
   const [showAllEvents, setShowAllEvents] = React.useState(false);
+  const [timelineWidth, setTimelineWidth] = React.useState(400);
+  const [focusTimelineWidth, setFocusTimelineWidth] = React.useState(400);
+  const [isResizing, setIsResizing] = React.useState(false);
   const sessionDetailCacheRef = React.useRef(new Map<string, ParsedConversation>());
   const eventDetailCacheRef = React.useRef(new Map<string, EventDetail>());
 
@@ -780,7 +792,7 @@ export default function App() {
 
   const eventRenderLimit = isFocusMode ? 120 : DEFAULT_EVENT_RENDER_LIMIT;
   const timelineEvents = React.useMemo(
-    () => (showAllEvents ? filteredEvents : filteredEvents.slice(-eventRenderLimit)),
+    () => (showAllEvents ? filteredEvents : filteredEvents.slice(0, eventRenderLimit)),
     [filteredEvents, showAllEvents, eventRenderLimit]
   );
   const hiddenEventCount = filteredEvents.length - timelineEvents.length;
@@ -812,6 +824,52 @@ export default function App() {
   const handleCloseInspector = React.useCallback(() => {
     setSelectedEvent(null);
   }, []);
+
+  const handleResizeStart = React.useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  React.useEffect(() => {
+    if (!isResizing) return;
+
+    let rafId: number | null = null;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (rafId !== null) return;
+
+      rafId = requestAnimationFrame(() => {
+        const sidebarWidth = isFocusMode ? 0 : 256;
+        const newWidth = e.clientX - sidebarWidth;
+        const clampedWidth = Math.max(300, Math.min(800, newWidth));
+
+        if (isFocusMode) {
+          setFocusTimelineWidth(clampedWidth);
+        } else {
+          setTimelineWidth(clampedWidth);
+        }
+        rafId = null;
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+    };
+  }, [isResizing, isFocusMode]);
 
   return (
     <div className="flex flex-col h-screen bg-bg-base text-text-primary overflow-hidden font-sans">
@@ -1031,11 +1089,24 @@ export default function App() {
                 selectedEventId={selectedEvent?.id ?? null}
                 showAllEvents={showAllEvents}
                 timelineEvents={timelineEvents}
+                timelineWidth={isFocusMode ? focusTimelineWidth : timelineWidth}
                 onClearFilter={handleClearFilter}
                 onSelectEvent={handleSelectEvent}
                 onToggleFilter={handleToggleFilter}
                 onToggleShowAllEvents={handleToggleShowAllEvents}
               />
+
+              {((!isFocusMode) || (isFocusMode && selectedEvent)) && (
+                <div
+                  className={cn(
+                    "w-1 bg-border-subtle hover:bg-brand-orange cursor-col-resize transition-colors shrink-0 relative group",
+                    isResizing && "bg-brand-orange"
+                  )}
+                  onMouseDown={handleResizeStart}
+                >
+                  <div className="absolute inset-y-0 -left-1 -right-1" />
+                </div>
+              )}
 
               <InspectorPanel
                 isEventDetailLoading={isEventDetailLoading}
