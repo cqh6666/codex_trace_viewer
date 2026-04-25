@@ -1,5 +1,8 @@
 import React from 'react';
 import { 
+  AlertCircle,
+  Check,
+  Copy,
   Search, 
   RefreshCw, 
   MessageSquare, 
@@ -10,7 +13,8 @@ import {
   ChevronRight,
   Activity,
   Layers,
-  Workflow
+  Workflow,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatTimestamp, formatFullDate, cn } from './lib/utils';
@@ -72,6 +76,33 @@ function setToCappedCache<T>(cache: Map<string, T>, key: string, value: T, maxEn
       break;
     }
     cache.delete(oldestKey);
+  }
+}
+
+async function copyTextToClipboard(text: string) {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('Clipboard API is unavailable');
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  const didCopy = document.execCommand('copy');
+  document.body.removeChild(textarea);
+
+  if (!didCopy) {
+    throw new Error('Copy command failed');
   }
 }
 
@@ -342,6 +373,43 @@ const TimelinePanel = React.memo(function TimelinePanel({
     : 0;
 
   const effectiveWidth = timelineWidth;
+  const hasPinnedWidth = !isFocusMode || selectedEventId !== null;
+  const isCompactHeader = hasPinnedWidth && effectiveWidth < 560;
+  const isTightHeader = hasPinnedWidth && effectiveWidth < 430;
+  const showHeaderMeta = filteredEventCount > eventRenderLimit || isFocusMode;
+  const filterRailRef = React.useRef<HTMLDivElement | null>(null);
+  const [filterRailOverflow, setFilterRailOverflow] = React.useState({ left: false, right: false });
+  const updateFilterRailOverflow = React.useCallback(() => {
+    const node = filterRailRef.current;
+    if (!node) return;
+
+    const maxScrollLeft = Math.max(0, node.scrollWidth - node.clientWidth);
+    const nextState = {
+      left: node.scrollLeft > 4,
+      right: maxScrollLeft - node.scrollLeft > 4,
+    };
+
+    setFilterRailOverflow((current) => (
+      current.left === nextState.left && current.right === nextState.right ? current : nextState
+    ));
+  }, []);
+
+  React.useEffect(() => {
+    const rafId = window.requestAnimationFrame(updateFilterRailOverflow);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [updateFilterRailOverflow, timelineWidth, filter.length, showHeaderMeta, isFocusMode]);
+
+  React.useEffect(() => {
+    const node = filterRailRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => updateFilterRailOverflow());
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, [updateFilterRailOverflow]);
 
   return (
     <section className={cn(
@@ -352,43 +420,79 @@ const TimelinePanel = React.memo(function TimelinePanel({
     )}
     style={!isFocusMode || (isFocusMode && selectedEventId) ? { width: effectiveWidth } : undefined}
     >
-      <div className="p-2 flex gap-1 border-b border-border-subtle bg-bg-surface items-center justify-between">
-        <div className="flex gap-1">
-          <button
-            onClick={onClearFilter}
-            className={cn("px-2 py-0.5 rounded text-[10px] transition-colors", filter.length === 0 ? "bg-border-subtle text-text-bright" : "hover:bg-border-subtle text-text-muted")}
-          >
-            All
-          </button>
-          {EVENT_FILTERS.map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => onToggleFilter(key)}
+      <div className="border-b border-border-subtle bg-bg-surface">
+        <div className="flex items-center gap-2 overflow-hidden p-2">
+          <div className="relative min-w-0 flex-1">
+            <div
+              ref={filterRailRef}
+              onScroll={updateFilterRailOverflow}
+              className="min-w-0 overflow-x-auto no-scrollbar"
+            >
+              <div className="flex w-max items-center gap-1 pr-3">
+                <button
+                  onClick={onClearFilter}
+                  className={cn(
+                    "shrink-0 whitespace-nowrap rounded px-2 py-1 text-[10px] transition-colors",
+                    filter.length === 0
+                      ? "bg-border-subtle text-text-bright"
+                      : "hover:bg-border-subtle text-text-muted"
+                  )}
+                >
+                  All
+                </button>
+                {EVENT_FILTERS.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => onToggleFilter(key)}
+                    className={cn(
+                      "shrink-0 whitespace-nowrap rounded px-2 py-1 text-[10px] transition-colors capitalize",
+                      filter.includes(key)
+                        ? "bg-border-subtle text-text-bright"
+                        : "hover:bg-border-subtle text-text-muted"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div
               className={cn(
-                "px-2 py-0.5 rounded text-[10px] transition-colors capitalize",
-                filter.includes(key) ? "bg-border-subtle text-text-bright" : "hover:bg-border-subtle text-text-muted"
+                "pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-bg-surface to-transparent transition-opacity duration-200",
+                filterRailOverflow.left ? "opacity-100" : "opacity-0"
               )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          {filteredEventCount > eventRenderLimit && (
-            <button
-              onClick={onToggleShowAllEvents}
-              className="text-[10px] uppercase font-bold text-text-muted hover:text-text-bright transition-colors"
-            >
-              {showAllEvents
-                ? `${filteredEventCount} / ${filteredEventCount} · Collapse`
-                : `${eventRenderLimit} / ${filteredEventCount} · Show All`
-              }
-            </button>
-          )}
-          {isFocusMode && (
-            <span className="text-[10px] font-bold text-text-muted flex items-center gap-2">
-              <Terminal className="w-3 h-3" /> TRACE STREAM
-            </span>
+            />
+            <div
+              className={cn(
+                "pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-bg-surface to-transparent transition-opacity duration-200",
+                filterRailOverflow.right ? "opacity-100" : "opacity-0"
+              )}
+            />
+          </div>
+          {showHeaderMeta && (
+            <div className="flex shrink-0 items-center gap-1.5 border-l border-border-subtle pl-2 whitespace-nowrap">
+              {filteredEventCount > eventRenderLimit && (
+                <>
+                  <span className="rounded border border-border-subtle bg-bg-base px-1.5 py-0.5 text-[10px] font-mono text-text-secondary">
+                    {showAllEvents
+                      ? `${filteredEventCount}/${filteredEventCount}`
+                      : `${eventRenderLimit}/${filteredEventCount}`}
+                  </span>
+                  <button
+                    onClick={onToggleShowAllEvents}
+                    className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-text-muted transition-colors hover:bg-border-subtle hover:text-text-bright"
+                  >
+                    {showAllEvents ? (isCompactHeader ? 'Less' : 'Collapse') : (isCompactHeader ? 'More' : 'Show All')}
+                  </button>
+                </>
+              )}
+              {isFocusMode && !isTightHeader && (
+                <span className="flex items-center gap-1.5 text-[10px] font-bold text-text-muted">
+                  <Terminal className="w-3 h-3" />
+                  {!isCompactHeader && 'TRACE STREAM'}
+                </span>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -438,6 +542,7 @@ const InspectorPanel = React.memo(function InspectorPanel({
   selectedEventDetail,
   onClose,
 }: InspectorPanelProps) {
+  const [copyFeedback, setCopyFeedback] = React.useState<'idle' | 'success' | 'error'>('idle');
   const inspectorPayload = selectedEventDetail?.raw ?? selectedEvent?.raw ?? selectedEvent?.payload;
   const inspectorPayloadText = React.useMemo(
     () => stringifyForDisplay(inspectorPayload),
@@ -455,8 +560,24 @@ const InspectorPanel = React.memo(function InspectorPanel({
     () => (selectedEvent ? renderFormattedContent(selectedEvent) : null),
     [selectedEvent]
   );
-  const handleCopyPayload = React.useCallback(() => {
-    void navigator.clipboard.writeText(inspectorPayloadText);
+  React.useEffect(() => {
+    if (copyFeedback === 'idle') return;
+
+    const timer = window.setTimeout(() => setCopyFeedback('idle'), 1800);
+    return () => window.clearTimeout(timer);
+  }, [copyFeedback]);
+  React.useEffect(() => {
+    setCopyFeedback('idle');
+  }, [selectedEvent?.id]);
+
+  const handleCopyPayload = React.useCallback(async () => {
+    try {
+      await copyTextToClipboard(inspectorPayloadText);
+      setCopyFeedback('success');
+    } catch (error) {
+      console.error(error);
+      setCopyFeedback('error');
+    }
   }, [inspectorPayloadText]);
 
   return (
@@ -466,19 +587,61 @@ const InspectorPanel = React.memo(function InspectorPanel({
         ? (selectedEvent ? "flex-1 border-l border-border-subtle" : "w-0 opacity-0 pointer-events-none")
         : "flex-1 border-l border-border-subtle"
     )}>
-      <div className="p-2 border-b border-border-subtle bg-bg-surface flex justify-between items-center shrink-0">
-        <span className="text-[10px] font-bold uppercase text-text-secondary tracking-widest">Inspector</span>
-        {selectedEvent && (
-          <div className="flex gap-3">
-            <button
-              className="text-[10px] text-brand-blue hover:text-white transition-colors"
-              onClick={handleCopyPayload}
-            >
-              Copy JSON
-            </button>
-            {isFocusMode && <button className="text-text-muted hover:text-white transition-colors" onClick={onClose}>Close</button>}
-          </div>
-        )}
+      <div className="border-b border-border-subtle bg-bg-surface shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 p-2">
+          <span className="text-[10px] font-bold uppercase text-text-secondary tracking-widest">Inspector</span>
+          {selectedEvent && (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <AnimatePresence initial={false}>
+                {copyFeedback !== 'idle' && (
+                  <motion.span
+                    key={copyFeedback}
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    aria-live="polite"
+                    className={cn(
+                      "inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[10px] font-semibold tracking-wide",
+                      copyFeedback === 'success'
+                        ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
+                        : "border-rose-500/25 bg-rose-500/10 text-rose-300"
+                    )}
+                  >
+                    {copyFeedback === 'success' ? (
+                      <Check className="w-3 h-3" />
+                    ) : (
+                      <AlertCircle className="w-3 h-3" />
+                    )}
+                    {copyFeedback === 'success' ? 'JSON copied' : 'Copy failed'}
+                  </motion.span>
+                )}
+              </AnimatePresence>
+              <button
+                className={cn(
+                  "inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[10px] font-semibold uppercase tracking-wide transition-colors",
+                  copyFeedback === 'success'
+                    ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
+                    : copyFeedback === 'error'
+                      ? "border-rose-500/25 bg-rose-500/10 text-rose-300"
+                      : "border-brand-blue/25 bg-brand-blue/10 text-brand-blue hover:border-brand-blue/45 hover:bg-brand-blue/15 hover:text-white"
+                )}
+                onClick={handleCopyPayload}
+              >
+                {copyFeedback === 'success' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                Copy JSON
+              </button>
+              {isFocusMode && (
+                <button
+                  className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border border-border-subtle bg-bg-base px-2.5 text-[10px] font-semibold uppercase tracking-wide text-text-secondary transition-colors hover:border-text-muted hover:bg-bg-elevated hover:text-text-bright"
+                  onClick={onClose}
+                >
+                  <X className="w-3 h-3" />
+                  Close
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
         <AnimatePresence mode="wait">
@@ -1209,13 +1372,22 @@ function renderEventSimplePreview(event: TraceEvent) {
   return truncateText(getEventPreviewText(event) || 'No preview', 88);
 }
 
+const FOCUS_PREVIEW_CLAMP_STYLE: React.CSSProperties = {
+  display: '-webkit-box',
+  WebkitBoxOrient: 'vertical',
+  WebkitLineClamp: 5,
+  overflow: 'hidden',
+};
+
 function renderImmersivePreview(event: TraceEvent) {
   const p = event.payload;
 
   if (event.category === 'context') {
     return (
       <div className="bg-amber-500/5 border border-amber-500/15 rounded p-3 text-amber-100/80 whitespace-pre-wrap">
-        {getEventPreviewText(event)}
+        <div style={FOCUS_PREVIEW_CLAMP_STYLE}>
+          {getEventPreviewText(event)}
+        </div>
       </div>
     );
   }
@@ -1223,7 +1395,9 @@ function renderImmersivePreview(event: TraceEvent) {
   if (event.category === 'system') {
     return (
       <div className="bg-fuchsia-500/5 border border-fuchsia-500/15 rounded p-3 text-fuchsia-100/80 whitespace-pre-wrap">
-        {getEventPreviewText(event)}
+        <div style={FOCUS_PREVIEW_CLAMP_STYLE}>
+          {getEventPreviewText(event)}
+        </div>
       </div>
     );
   }
@@ -1234,18 +1408,31 @@ function renderImmersivePreview(event: TraceEvent) {
         <div className={cn(
           "whitespace-pre-wrap font-mono leading-relaxed",
           p.role === 'user' ? "text-text-bright" : "text-brand-blue"
-        )}>
+        )} style={FOCUS_PREVIEW_CLAMP_STYLE}>
           {p.content || getEventPreviewText(event)}
         </div>
       );
     case 'reasoning':
-      return <div className="italic text-purple-400 font-mono opacity-80 whitespace-pre-wrap">{p.content || getEventPreviewText(event)}</div>;
+      return (
+        <div
+          className="italic text-purple-400 font-mono opacity-80 whitespace-pre-wrap"
+          style={FOCUS_PREVIEW_CLAMP_STYLE}
+        >
+          {p.content || getEventPreviewText(event)}
+        </div>
+      );
     case 'tool_call':
       return (
         <div className="bg-black/20 p-2 rounded border border-white/5 space-y-2">
           <div className="text-emerald-400 font-bold">{p.name}(...)</div>
-          {p.command && <div className="text-[10px] text-brand-orange font-mono break-all">{p.command}</div>}
-          <div className="text-[10px] text-text-muted whitespace-pre-wrap break-words">{stringifyForDisplay(p.arguments, 2)}</div>
+          {p.command && (
+            <div className="text-[10px] text-brand-orange font-mono break-all" style={FOCUS_PREVIEW_CLAMP_STYLE}>
+              {p.command}
+            </div>
+          )}
+          <div className="text-[10px] text-text-muted whitespace-pre-wrap break-words" style={FOCUS_PREVIEW_CLAMP_STYLE}>
+            {stringifyForDisplay(p.arguments, 2)}
+          </div>
         </div>
       );
     case 'tool_result':
@@ -1257,7 +1444,10 @@ function renderImmersivePreview(event: TraceEvent) {
             {typeof p.duration_ms === 'number' && <span>{p.duration_ms} ms</span>}
             {p.content_truncated && <span className="text-brand-orange">Preview truncated</span>}
           </div>
-          <div className="text-emerald-500/90 max-h-32 overflow-hidden whitespace-pre-wrap break-words">
+          <div
+            className="text-emerald-500/90 whitespace-pre-wrap break-words"
+            style={FOCUS_PREVIEW_CLAMP_STYLE}
+          >
             {typeof p.content === 'string' ? p.content : stringifyForDisplay(p.content, 2)}
           </div>
         </div>
@@ -1282,7 +1472,7 @@ function renderImmersivePreview(event: TraceEvent) {
       );
     default:
       return (
-        <div className="text-text-muted italic whitespace-pre-wrap break-words">
+        <div className="text-text-muted italic whitespace-pre-wrap break-words" style={FOCUS_PREVIEW_CLAMP_STYLE}>
           {truncateText(getEventPreviewText(event), 240)}
         </div>
       );
@@ -1382,6 +1572,26 @@ function renderStructuredDetail(event: TraceEvent) {
   return null;
 }
 
+function getContextualFormattedContent(event: TraceEvent) {
+  const p = event.payload;
+  const baseInstructionsText =
+    typeof p?.base_instructions?.text === 'string' && p.base_instructions.text.trim()
+      ? p.base_instructions.text.trim()
+      : null;
+
+  if ((event.type === 'session_meta' || event.top_type === 'session_meta') && baseInstructionsText) {
+    return {
+      text: baseInstructionsText,
+      source: 'base_instructions.text',
+    };
+  }
+
+  return {
+    text: getEventPreviewText(event),
+    source: null,
+  };
+}
+
 function renderFormattedContent(event: TraceEvent) {
   const p = event.payload;
   const isMessage = event.type === 'message';
@@ -1389,12 +1599,27 @@ function renderFormattedContent(event: TraceEvent) {
   const isToolCall = event.type === 'tool_call';
   const isToolResult = event.type === 'tool_result';
   const isContextual = event.category === 'context' || event.category === 'system';
+  const contextualContent = isContextual ? getContextualFormattedContent(event) : null;
+  const contentSource =
+    typeof p?.content_source === 'string' ? p.content_source : contextualContent?.source || null;
+  const isEncryptedReasoning = isReasoning && Boolean(p?.encrypted);
+  const reasoningContent =
+    typeof p?.content === 'string' && p.content.trim() && p.content !== 'Reasoning item'
+      ? p.content
+      : null;
 
   if (!isMessage && !isReasoning && !isToolCall && !isToolResult && !isContextual) return null;
 
   return (
     <div className="mb-2">
-      <h3 className="text-text-secondary text-[10px] font-bold mb-2 uppercase tracking-widest">Formatted Content</h3>
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <h3 className="text-text-secondary text-[10px] font-bold uppercase tracking-widest">Formatted Content</h3>
+        {contentSource && (
+          <span className="rounded border border-emerald-500/20 bg-emerald-500/8 px-2 py-1 font-mono text-[10px] text-emerald-300/90">
+            {contentSource}
+          </span>
+        )}
+      </div>
       <div className={cn(
         "rounded p-4 text-[12px] leading-relaxed font-mono border",
         isReasoning
@@ -1408,7 +1633,15 @@ function renderFormattedContent(event: TraceEvent) {
             "whitespace-pre-wrap break-words",
             isReasoning ? "text-purple-300 italic" : (p.role === 'user' ? "text-text-bright" : "text-brand-blue")
           )}>
-            {p.content || getEventPreviewText(event) || <span className="opacity-30 italic">Empty content payload</span>}
+            {isEncryptedReasoning && !reasoningContent ? (
+              <span className="not-italic text-purple-200/80">
+                Encrypted reasoning trace. No readable formatted content is available in this event.
+              </span>
+            ) : (
+              (isReasoning ? reasoningContent : p.content) ||
+              getEventPreviewText(event) ||
+              <span className="opacity-30 italic">Empty content payload</span>
+            )}
           </div>
         ) : isToolCall ? (
           <div className="space-y-3">
@@ -1438,7 +1671,7 @@ function renderFormattedContent(event: TraceEvent) {
           </div>
         ) : isContextual ? (
           <div className="whitespace-pre-wrap break-words text-text-primary">
-            {getEventPreviewText(event)}
+            {contextualContent?.text || <span className="opacity-30 italic">No formatted content</span>}
           </div>
         ) : null}
       </div>

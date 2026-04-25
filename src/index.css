@@ -43,6 +43,15 @@
   @apply bg-border-subtle hover:bg-text-muted rounded-full;
 }
 
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 .timeline-line::before {
   content: '';
   position: absolute;
@@ -57,4 +66,3 @@
 .json-string { @apply text-orange-300 font-mono; }
 .json-number { @apply text-sky-300 font-mono; }
 .json-boolean { @apply text-purple-400 font-mono; }
-

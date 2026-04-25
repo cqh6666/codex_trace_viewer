@@ -390,6 +390,102 @@ function extractAnyMessageText(topType: string, payload: JsonRecord): string {
   return '';
 }
 
+function isMeaningfulString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function durationToMs(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (!isRecord(value)) return undefined;
+
+  const secs = safeInt(value.secs);
+  const nanos = safeInt(value.nanos);
+  if (secs <= 0 && nanos <= 0) return undefined;
+  return Math.round(secs * 1000 + nanos / 1_000_000);
+}
+
+function extractToolNameFromInvocation(invocation: unknown): string | null {
+  if (!isRecord(invocation)) return null;
+  const server = asString(invocation.server);
+  const tool = asString(invocation.tool);
+  if (server && tool) return `mcp__${server}__${tool}`;
+  return tool || server || null;
+}
+
+function extractTextFromToolResultContainer(value: unknown): string {
+  if (!isRecord(value)) return '';
+  const directText = extractTextFromContent(value.content);
+  if (directText) return directText;
+  return asString(value.text) || asString(value.message) || '';
+}
+
+function extractTextFromMcpResult(result: unknown): string {
+  if (!isRecord(result)) return '';
+
+  const okText = extractTextFromToolResultContainer(result.Ok);
+  if (okText) return okText;
+
+  const errText = extractTextFromToolResultContainer(result.Err);
+  if (errText) return errText;
+
+  return '';
+}
+
+function combineOutputStreams(payload: JsonRecord): {text: string; source: string | null} {
+  const stdout = asString(payload.stdout);
+  const stderr = asString(payload.stderr);
+
+  if (stdout && stderr) {
+    return {
+      text: `${stdout}${stdout.endsWith('\n') ? '' : '\n'}${stderr}`,
+      source: 'stdout+stderr',
+    };
+  }
+  if (stdout) return {text: stdout, source: 'stdout'};
+  if (stderr) return {text: stderr, source: 'stderr'};
+  return {text: '', source: null};
+}
+
+function extractToolResultOutput(payload: JsonRecord): {content: unknown; source: string} {
+  if (isMeaningfulString(payload.formatted_output)) {
+    return {content: payload.formatted_output, source: 'formatted_output'};
+  }
+
+  if (isMeaningfulString(payload.aggregated_output)) {
+    return {content: payload.aggregated_output, source: 'aggregated_output'};
+  }
+
+  const mcpText = extractTextFromMcpResult(payload.result);
+  if (mcpText) {
+    return {content: mcpText, source: 'result.Ok.content'};
+  }
+
+  if (payload.output !== undefined && payload.output !== null) {
+    if (typeof payload.output !== 'string' || payload.output.trim().length > 0) {
+      return {content: payload.output, source: 'output'};
+    }
+  }
+
+  if (payload.result !== undefined && payload.result !== null) {
+    return {content: payload.result, source: 'result'};
+  }
+
+  if (isMeaningfulString(payload.message)) {
+    return {content: payload.message, source: 'message'};
+  }
+
+  if (isMeaningfulString(payload.delta)) {
+    return {content: payload.delta, source: 'delta'};
+  }
+
+  const streams = combineOutputStreams(payload);
+  if (streams.text) {
+    return {content: streams.text, source: streams.source || 'stdout'};
+  }
+
+  return {content: payload, source: 'payload'};
+}
+
 function isProbablyScaffoldingMessage(text: string): boolean {
   const lowered = text.toLowerCase();
   return (
@@ -1301,8 +1397,9 @@ class RolloutStore {
     if (category === 'tool_call') {
       const input = parseToolCallInput(payload, subtype);
       const command = parseToolCallCommand(payload, subtype);
+      const invocationName = extractToolNameFromInvocation(payload.invocation);
       return {
-        name: asString(payload.name) || subtype || 'tool_call',
+        name: asString(payload.name) || invocationName || subtype || 'tool_call',
         arguments: input || payload.arguments || payload.input || {},
         command,
         commandRoot: extractCommandRoot(command),
@@ -1313,16 +1410,20 @@ class RolloutStore {
 
     if (category === 'tool_result') {
       const callId = asString(payload.call_id) || asString(payload.id);
-      const output = payload.output ?? payload.message ?? payload.delta ?? payload.stdout ?? payload.stderr ?? payload;
-      const [content, contentTruncated] = shrinkForJson(output, 6, 80, 12000);
+      const output = extractToolResultOutput(payload);
+      const [content, contentTruncated] = shrinkForJson(output.content, 6, 80, 12000);
       return {
-        name: callId ? toolNameByCallId.get(callId) : undefined,
+        name:
+          (callId ? toolNameByCallId.get(callId) : undefined) ||
+          extractToolNameFromInvocation(payload.invocation) ||
+          undefined,
         content,
         content_truncated: contentTruncated,
+        content_source: output.source,
         call_id: callId,
         status: payload.status,
         exit_code: payload.exit_code,
-        duration_ms: payload.duration_ms || payload.duration,
+        duration_ms: durationToMs(payload.duration_ms ?? payload.duration),
       };
     }
 
