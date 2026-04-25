@@ -19,6 +19,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { formatTimestamp, formatFullDate, cn } from './lib/utils';
 import { TraceEvent, ConversationSummary, ParsedConversation, ToolAnalytics, EventDetail, TokenSnapshot, CompactionImpact } from './types';
+import { MarkdownRenderer, detectMarkdown } from './components/MarkdownRenderer';
 
 // Components
 const EventIcon = ({ category }: { category: TraceEvent['category'] }) => {
@@ -1462,7 +1463,7 @@ export default function App() {
                       <div key={stat.name} className="flex items-center gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="text-[10px] font-mono text-text-primary truncate">{stat.name}</div>
-                          {'type' in stat && (
+                          {'type' in stat && typeof stat.type === 'string' && (
                             <div className="text-[9px] uppercase text-text-muted">{stat.type}</div>
                           )}
                         </div>
@@ -1845,9 +1846,25 @@ function renderFormattedContent(event: TraceEvent) {
   const contentSource =
     typeof p?.content_source === 'string' ? p.content_source : contextualContent?.source || null;
   const isEncryptedReasoning = isReasoning && Boolean(p?.encrypted);
+  const messageContent =
+    typeof p?.content === 'string' && p.content.trim()
+      ? p.content
+      : null;
   const reasoningContent =
     typeof p?.content === 'string' && p.content.trim() && p.content !== 'Reasoning item'
       ? p.content
+      : null;
+  const textContent =
+    isReasoning
+      ? reasoningContent
+      : isMessage
+        ? messageContent || getEventPreviewText(event) || null
+        : isContextual
+          ? contextualContent?.text || null
+          : null;
+  const markdownContent =
+    !isEncryptedReasoning && textContent && detectMarkdown(textContent)
+      ? textContent
       : null;
 
   if (!isMessage && !isReasoning && !isToolCall && !isToolResult && !isContextual) return null;
@@ -1863,14 +1880,16 @@ function renderFormattedContent(event: TraceEvent) {
         )}
       </div>
       <div className={cn(
-        "rounded p-4 text-[12px] leading-relaxed font-mono border",
+        "rounded border p-4 text-[12px] leading-relaxed font-mono",
         isReasoning
           ? "bg-purple-900/10 border-purple-500/20"
           : isContextual
             ? "bg-amber-950/10 border-amber-500/15"
             : "bg-bg-elevated border-border-subtle"
       )}>
-        {isMessage || isReasoning ? (
+        {markdownContent ? (
+          <MarkdownRenderer content={markdownContent} />
+        ) : isMessage || isReasoning ? (
           <div className={cn(
             "whitespace-pre-wrap break-words",
             isReasoning ? "text-purple-300 italic" : (p.role === 'user' ? "text-text-bright" : "text-brand-blue")
@@ -1880,7 +1899,7 @@ function renderFormattedContent(event: TraceEvent) {
                 Encrypted reasoning trace. No readable formatted content is available in this event.
               </span>
             ) : (
-              (isReasoning ? reasoningContent : p.content) ||
+              (isReasoning ? reasoningContent : messageContent) ||
               getEventPreviewText(event) ||
               <span className="opacity-30 italic">Empty content payload</span>
             )}
