@@ -2,7 +2,7 @@
 
 一个专业的 Web 工具，用于分析 Codex rollout traces。该应用扫描 Codex JSONL 会话文件，构建会话摘要，解析事件时间线，并通过直观的 React UI 提供全面的 token/工具/轮次分析。
 
-[English Documentation](./README.md)
+[English Documentation](./README.md) | [架构文档](./ARCHITECTURE.md)
 
 ## 界面截图
 

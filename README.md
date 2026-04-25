@@ -2,7 +2,7 @@
 
 A professional web-based tool for analyzing Codex rollout traces. The app scans Codex JSONL session files, builds conversation summaries, parses event timelines, and provides comprehensive token/tool/turn analytics through an intuitive React UI.
 
-[中文文档](./README_zh.md)
+[中文文档](./README_zh.md) | [Architecture Documentation](./ARCHITECTURE.md)
 
 ## Screenshot
 
