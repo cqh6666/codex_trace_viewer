@@ -8,7 +8,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { formatFullDate } from '../lib/utils';
+import { formatFullDate, formatTimestamp } from '../lib/utils';
 import { CompactionImpact, TokenSnapshot } from '../types';
 
 interface TokenArcChartProps {
@@ -34,6 +34,10 @@ interface OverlayPoint {
 }
 
 const CHART_MARGIN = { top: 5, right: 0, left: -20, bottom: 0 } as const;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
 
 function findNearestTokenIndex(left: number, points: OverlayPoint[]): number | null {
   if (points.length === 0) return null;
@@ -221,16 +225,36 @@ export default function TokenArcChart({
 
     return { tokenPositions, compactionPositions };
   }, [compactionMarkers, data, size.height, size.width]);
-  const selectedTokenPosition = React.useMemo(() => {
+  const selectedTokenIndex = React.useMemo(() => {
     if (typeof selectedTokenEventIndex !== 'number') return null;
     const selectedIndex = data.findIndex((point) => point.eventIndex === selectedTokenEventIndex);
-    if (selectedIndex < 0) return null;
-    return overlayState.tokenPositions[selectedIndex] ?? null;
-  }, [data, overlayState.tokenPositions, selectedTokenEventIndex]);
-  const hoveredTokenPosition = hoveredTokenIndex !== null
-    ? overlayState.tokenPositions[hoveredTokenIndex] ?? null
+    return selectedIndex >= 0 ? selectedIndex : null;
+  }, [data, selectedTokenEventIndex]);
+  const activeTokenIndex = hoveredTokenIndex ?? selectedTokenIndex;
+  const activeTokenPosition = activeTokenIndex !== null
+    ? overlayState.tokenPositions[activeTokenIndex] ?? null
     : null;
-  const activeTokenPosition = hoveredTokenPosition ?? selectedTokenPosition;
+  const activeTokenSnapshot = activeTokenIndex !== null
+    ? data[activeTokenIndex] ?? null
+    : null;
+  const activeTokenLabel = React.useMemo(() => {
+    if (!activeTokenPosition || !activeTokenSnapshot || size.width <= 0 || size.height <= 0) return null;
+
+    const horizontalAlign = activeTokenPosition.left > size.width * 0.68 ? 'left' : 'right';
+    const verticalAlign = activeTokenPosition.top < size.height * 0.34 ? 'below' : 'above';
+    const left = clamp(activeTokenPosition.left, 16, Math.max(16, size.width - 16));
+    const top = clamp(activeTokenPosition.top, 16, Math.max(16, size.height - 16));
+
+    return {
+      horizontalAlign,
+      verticalAlign,
+      left,
+      top,
+      time: formatTimestamp(activeTokenSnapshot.timestamp),
+      tokens: `${activeTokenSnapshot.totalTokens.toLocaleString()} tok`,
+      fullTimestamp: formatFullDate(activeTokenSnapshot.timestamp),
+    };
+  }, [activeTokenPosition, activeTokenSnapshot, size.height, size.width]);
   const plotHeight = Math.max(0, size.height - CHART_MARGIN.top - CHART_MARGIN.bottom);
   const renderCompactionMarker = React.useCallback((props: unknown) => {
     const marker = props as { cx?: number; cy?: number; payload?: CompactionMarkerDatum };
@@ -360,6 +384,21 @@ export default function TokenArcChart({
                 }}
               />
             </>
+          )}
+          {activeTokenLabel && (
+            <div
+              className="absolute z-10 w-max max-w-none rounded-md border border-sky-400/25 bg-[#07101a]/95 px-2 py-1 font-mono text-[9px] leading-tight text-sky-50 shadow-[0_10px_24px_rgba(2,6,23,0.45)] backdrop-blur-sm"
+              style={{
+                left: activeTokenLabel.left,
+                top: activeTokenLabel.top,
+                transform: `translate(${activeTokenLabel.horizontalAlign === 'left' ? '-100%' : '0'}, ${activeTokenLabel.verticalAlign === 'above' ? '-100%' : '0'}) translate(${activeTokenLabel.horizontalAlign === 'left' ? '-14px' : '14px'}, ${activeTokenLabel.verticalAlign === 'above' ? '-8px' : '8px'})`,
+              }}
+              title={activeTokenLabel.fullTimestamp}
+            >
+              <div className="text-[8px] uppercase tracking-[0.18em] text-sky-200/60">Snapshot</div>
+              <div className="mt-0.5 whitespace-nowrap">{activeTokenLabel.time}</div>
+              <div className="whitespace-nowrap text-sky-200">{activeTokenLabel.tokens}</div>
+            </div>
           )}
           {overlayState.compactionPositions.map((point) => {
             const impact = compactions.find((item) => item.compaction_event_index === point.compactionEventIndex);

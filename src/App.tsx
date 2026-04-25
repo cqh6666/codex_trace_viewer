@@ -128,39 +128,31 @@ function getContextUtilizationTone(fillPercent: number | null) {
   if (fillPercent === null || !Number.isFinite(fillPercent)) {
     return {
       label: 'Unknown',
-      helper: 'Missing model context window',
       badgeClass: 'border-border-subtle bg-bg-base text-text-muted',
       fillClass: 'bg-text-muted/40',
-      helperClass: 'text-text-muted',
     };
   }
 
   if (fillPercent < 60) {
     return {
       label: 'Healthy',
-      helper: 'Plenty of headroom for follow-up turns',
       badgeClass: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300',
       fillClass: 'bg-emerald-500',
-      helperClass: 'text-emerald-300/80',
     };
   }
 
   if (fillPercent < 85) {
     return {
       label: 'Watch',
-      helper: 'Latency and long-context tradeoffs start to matter',
       badgeClass: 'border-amber-500/25 bg-amber-500/10 text-amber-300',
       fillClass: 'bg-amber-400',
-      helperClass: 'text-amber-300/80',
     };
   }
 
   return {
     label: 'Near Limit',
-    helper: 'Trim or compact before larger tool/output turns',
     badgeClass: 'border-rose-500/25 bg-rose-500/10 text-rose-300',
     fillClass: 'bg-rose-500',
-    helperClass: 'text-rose-300/80',
   };
 }
 
@@ -1378,9 +1370,6 @@ export default function App() {
                           className={cn("h-full transition-colors", contextUtilizationTone.fillClass)}
                           style={{ width: `${contextFillWidth}%` }}
                         ></div>
-                      </div>
-                      <div className={cn("text-[10px]", contextUtilizationTone.helperClass)}>
-                        {contextUtilizationTone.helper}
                       </div>
                     </div>
                     <div className="space-y-1">
