@@ -14,7 +14,8 @@ The interface features a three-panel layout with session list, event timeline, a
 
 - **Session Management**: Browse and search through active and archived Codex sessions
 - **Event Timeline**: Visualize conversation events with filtering by category (messages, tool calls, reasoning, tokens, etc.)
-- **Token Analytics**: Track token usage over time with interactive charts showing context utilization
+- **Token Analytics**: Interactive token usage charts with clickable navigation to specific events and enhanced hover details
+- **Context Utilization Monitoring**: Real-time risk indicators (Healthy/Watch/Near Limit) with visual progress bars and actionable guidance
 - **Tool Usage Analytics**: Analyze tool call patterns with session-level and global statistics
 - **Focus Mode**: Distraction-free view for deep trace analysis
 - **Event Inspector**: Detailed payload inspection with formatted content and raw JSON views
@@ -168,6 +169,8 @@ codex-trace-viewer/
 │   ├── App.tsx           # Main React application
 │   ├── main.tsx          # Application entry point
 │   ├── types.ts          # TypeScript type definitions
+│   ├── components/
+│   │   └── TokenArcChart.tsx  # Interactive token chart component
 │   └── lib/
 │       └── utils.ts      # Utility functions
 ├── server.ts             # Express backend server

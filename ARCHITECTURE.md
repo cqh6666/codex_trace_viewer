@@ -177,12 +177,19 @@ App.tsx (Main Component)
 │   │
 │   ├─→ Summary Metrics Bar
 │   │   ├─→ Model/Thread Info
-│   │   ├─→ Context Utilization
+│   │   ├─→ Context Utilization (with Risk States)
+│   │   │   ├─→ Progress Bar
+│   │   │   ├─→ Risk Badge (Healthy/Watch/Near Limit)
+│   │   │   └─→ Actionable Guidance
 │   │   ├─→ Event Metrics
 │   │   └─→ Origin Info
 │   │
 │   ├─→ Charts Section
-│   │   ├─→ Token Arc Chart (Recharts)
+│   │   ├─→ TokenArcChart Component
+│   │   │   ├─→ Interactive Area Chart
+│   │   │   ├─→ Clickable Token Snapshots
+│   │   │   ├─→ Compaction Markers
+│   │   │   └─→ Enhanced Hover Tooltips
 │   │   └─→ Tool Usage Stats
 │   │
 │   └─→ Event Explorer
@@ -215,7 +222,7 @@ server.ts
 ├─→ Data Processing
 │   ├─→ JSONL Parser
 │   ├─→ Event Categorizer
-│   ├─→ Token Analyzer
+│   ├─→ Token Analyzer (with event index mapping)
 │   └─→ Tool Analytics
 │
 ├─→ API Routes
@@ -229,6 +236,18 @@ server.ts
 │
 └─→ Vite Integration
     └─→ Dev Server Middleware
+```
+
+### Frontend Components
+
+```
+src/
+├─→ App.tsx (Main Component)
+├─→ components/
+│   └─→ TokenArcChart.tsx (Interactive Token Visualization)
+├─→ lib/
+│   └─→ utils.ts (Utilities & Helpers)
+└─→ types.ts (TypeScript Definitions)
 ```
 
 ## Key Features Implementation
@@ -246,12 +265,30 @@ server.ts
   - Shows immersive event previews
   - Reduces chart complexity
 
-### 3. Token Analytics
+### 3. Token Analytics with Event Navigation
 - **Data Source**: `token_count` events in JSONL
-- **Processing**: Build time-series array
-- **Visualization**: Recharts AreaChart with gradient fill
+- **Processing**: Build time-series array with event index mapping
+- **Visualization**: Interactive Recharts ComposedChart with:
+  - Area chart showing token usage over time
+  - Scatter plot for compaction events
+  - Clickable data points that navigate to specific events
+  - Enhanced tooltips with detailed token breakdown
+  - Visual indicators for selected snapshots
+- **Interaction**: Click any point on the chart to jump to that event in the timeline
 
-### 4. Tool Usage Analytics
+### 4. Context Utilization Risk States
+- **Purpose**: Proactive monitoring of context window usage
+- **Risk Levels**:
+  - **Healthy** (<60%): Plenty of headroom for follow-up turns
+  - **Watch** (60-85%): Latency and long-context tradeoffs start to matter
+  - **Near Limit** (≥85%): Trim or compact before larger tool/output turns
+- **Visual Indicators**:
+  - Color-coded progress bar (emerald/amber/rose)
+  - Badge with risk level label
+  - Contextual helper text with actionable guidance
+- **Calculation**: Peak tokens / model context window size
+
+### 5. Tool Usage Analytics
 - **Scope**: Session-level and Global
 - **Metrics**:
   - Total tool calls
@@ -260,7 +297,7 @@ server.ts
   - Skill invocations
   - MCP tool usage
 
-### 5. Event Categorization
+### 6. Event Categorization
 ```
 Raw JSONL Event
      │
