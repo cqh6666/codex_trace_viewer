@@ -66,13 +66,31 @@ export interface ConversationSummary {
   origin: 'user' | 'automation' | 'subagent' | 'unknown';
 }
 
+export interface ParsedConversationStats {
+  event_count?: number;
+  turn_count?: number;
+  message_count?: number;
+  reasoning_count?: number;
+  tool_call_count?: number;
+  tool_result_count?: number;
+  context_event_count?: number;
+  system_event_count?: number;
+  token_event_count?: number;
+  compaction_signal_count?: number;
+  compaction_event_count?: number;
+  max_total_tokens?: number;
+  max_context_window?: number;
+  peak_fill_percent?: number | null;
+  line_count?: number;
+}
+
 export interface ParsedConversation {
   summary: ConversationSummary;
   events: TraceEvent[];
   tokenSeries: TokenSnapshot[];
   toolStats: ToolStat[];
   turns: any[];
-  stats?: any;
+  stats?: ParsedConversationStats;
   compactionImpacts?: CompactionImpact[];
   toolAnalytics?: any;
 }

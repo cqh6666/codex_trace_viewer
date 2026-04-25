@@ -106,6 +106,24 @@ async function copyTextToClipboard(text: string) {
   }
 }
 
+function formatCompactMetric(value: number, suffix: string) {
+  const rounded = Math.round(value * 10) / 10;
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}${suffix}`;
+}
+
+function formatContextMetric(tokens: number | null | undefined) {
+  if (!tokens || tokens <= 0) {
+    return 'Unknown';
+  }
+  if (tokens < 10000) {
+    return tokens.toLocaleString();
+  }
+  if (tokens < 1000000) {
+    return formatCompactMetric(tokens / 1000, 'k');
+  }
+  return formatCompactMetric(tokens / 1000000, 'm');
+}
+
 function useElementSize<T extends HTMLElement>(active = true) {
   const ref = React.useRef<T | null>(null);
   const [size, setSize] = React.useState({ width: 0, height: 0 });
@@ -776,6 +794,7 @@ export default function App() {
   const [timelineWidth, setTimelineWidth] = React.useState(400);
   const [focusTimelineWidth, setFocusTimelineWidth] = React.useState(400);
   const [isResizing, setIsResizing] = React.useState(false);
+  const [threadCopyFeedback, setThreadCopyFeedback] = React.useState<'idle' | 'success' | 'error'>('idle');
   const sessionDetailCacheRef = React.useRef(new Map<string, ParsedConversation>());
   const eventDetailCacheRef = React.useRef(new Map<string, EventDetail>());
   const skipNextEventCollapseRef = React.useRef(false);
@@ -981,6 +1000,17 @@ export default function App() {
   }, [selectedSession, selectedEvent]);
 
   React.useEffect(() => {
+    if (threadCopyFeedback === 'idle') return;
+
+    const timer = window.setTimeout(() => setThreadCopyFeedback('idle'), 1200);
+    return () => window.clearTimeout(timer);
+  }, [threadCopyFeedback]);
+
+  React.useEffect(() => {
+    setThreadCopyFeedback('idle');
+  }, [selectedSession, parsedData?.summary?.threadId]);
+
+  React.useEffect(() => {
     setSessionRenderLimit(DEFAULT_SESSION_RENDER_LIMIT);
   }, [deferredSearch, isArchivedView]);
 
@@ -1022,6 +1052,36 @@ export default function App() {
     : (parsedData?.toolStats || []);
   const visibleToolMax = visibleToolRows[0]?.count || 1;
   const toolRootsPreview = visibleToolAnalytics?.top_command_roots?.slice(0, 3).map(item => item.name).join(', ');
+  const modelLabel = parsedData?.summary?.model || 'Unknown';
+  const threadId = parsedData?.summary?.threadId || 'Unknown';
+  const peakTokens = parsedData?.summary?.metrics.peakTokens || 0;
+  const contextWindow = parsedData?.stats?.max_context_window || 0;
+  const hasContextWindow = contextWindow > 0;
+  const peakTokensLabel = formatContextMetric(peakTokens);
+  const contextWindowLabel = formatContextMetric(contextWindow);
+  const contextUtilizationTitle = hasContextWindow
+    ? `${peakTokens.toLocaleString()} / ${contextWindow.toLocaleString()} tokens`
+    : `${peakTokens.toLocaleString()} tokens`;
+  const contextFillPercent = parsedData?.stats?.peak_fill_percent ?? (
+    hasContextWindow ? (peakTokens / contextWindow) * 100 : null
+  );
+  const contextFillPercentLabel = contextFillPercent !== null && Number.isFinite(contextFillPercent)
+    ? Math.round(contextFillPercent)
+    : null;
+  const contextFillWidth = contextFillPercent !== null && Number.isFinite(contextFillPercent)
+    ? Math.min(100, Math.max(0, contextFillPercent))
+    : 0;
+  const handleCopyThreadId = React.useCallback(async () => {
+    if (!threadId || threadId === 'Unknown') return;
+
+    try {
+      await copyTextToClipboard(threadId);
+      setThreadCopyFeedback('success');
+    } catch (error) {
+      console.error(error);
+      setThreadCopyFeedback('error');
+    }
+  }, [threadId]);
   const handleSelectSession = React.useCallback((sessionId: string) => {
     setSelectedEvent(null);
     setSelectedEventDetail(null);
@@ -1217,17 +1277,56 @@ export default function App() {
                   >
                     <div className="space-y-1">
                       <div className="text-[9px] uppercase font-bold text-text-muted tracking-wide">Model / Thread</div>
-                      <div className="text-[12px] font-mono text-text-bright truncate">{parsedData.summary?.model || 'Unknown'} / {parsedData.summary?.threadId || 'Unknown'}</div>
+                      <div className="flex items-center gap-1 min-w-0 text-[12px] font-mono text-text-bright">
+                        <span className="shrink-0">{modelLabel}</span>
+                        <span className="shrink-0 text-text-muted">/</span>
+                        <button
+                          type="button"
+                          onClick={handleCopyThreadId}
+                          aria-label={`Copy thread ID ${threadId}`}
+                          title={threadId}
+                          className={cn(
+                            "group flex-1 min-w-0 inline-flex items-center gap-2 rounded-md border px-2 py-0.5 text-left transition-colors",
+                            threadCopyFeedback === 'success'
+                              ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
+                              : threadCopyFeedback === 'error'
+                                ? "border-rose-500/25 bg-rose-500/10 text-rose-300"
+                                : "border-transparent text-text-bright/90 hover:border-border-subtle hover:bg-bg-base/60"
+                          )}
+                        >
+                          <span className="truncate">{threadId}</span>
+                          <span className="ml-auto inline-flex items-center gap-1.5 shrink-0 text-[10px] font-semibold tracking-wide">
+                            {threadCopyFeedback === 'success' ? (
+                              <>
+                                <Check className="w-3 h-3 shrink-0" />
+                                Copied
+                              </>
+                            ) : threadCopyFeedback === 'error' ? (
+                              <>
+                                <AlertCircle className="w-3 h-3 shrink-0" />
+                                Retry
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3 shrink-0 text-text-muted transition-colors group-hover:text-text-bright/80" />
+                                Copy
+                              </>
+                            )}
+                          </span>
+                        </button>
+                      </div>
                       <div className="text-[10px] text-text-secondary">Started {parsedData.summary?.createdAt ? formatFullDate(parsedData.summary.createdAt) : 'Unknown'}</div>
                     </div>
                     <div className="space-y-1">
                       <div className="text-[9px] uppercase font-bold text-text-muted tracking-wide">Context Utilization</div>
-                      <div className="text-[12px] font-mono text-text-bright">
-                        {parsedData.summary?.metrics.peakTokens.toLocaleString() || 0} / 128k 
-                        <span className="text-brand-orange text-[10px] ml-2">({parsedData.summary ? Math.round((parsedData.summary.metrics.peakTokens / 128000) * 100) : 0}%)</span>
+                      <div className="text-[12px] font-mono text-text-bright" title={contextUtilizationTitle}>
+                        {peakTokensLabel} / {contextWindowLabel}
+                        <span className="text-brand-orange text-[10px] ml-2">
+                          ({contextFillPercentLabel === null ? 'Unknown' : `${contextFillPercentLabel}%`})
+                        </span>
                       </div>
                       <div className="w-full h-1 bg-border-subtle rounded-full overflow-hidden">
-                        <div className="bg-brand-orange h-full" style={{ width: `${parsedData.summary ? Math.min(100, (parsedData.summary.metrics.peakTokens / 128000) * 100) : 0}%` }}></div>
+                        <div className="bg-brand-orange h-full" style={{ width: `${contextFillWidth}%` }}></div>
                       </div>
                     </div>
                     <div className="space-y-1">
