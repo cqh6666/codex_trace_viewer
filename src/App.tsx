@@ -13,14 +13,6 @@ import {
   Workflow
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  AreaChart,
-  Area
-} from 'recharts';
 import { formatTimestamp, formatFullDate, cn } from './lib/utils';
 import { TraceEvent, ConversationSummary, ParsedConversation, ToolAnalytics, EventDetail } from './types';
 
@@ -54,6 +46,34 @@ const DEFAULT_SESSION_RENDER_LIMIT = 120;
 const DEFAULT_EVENT_RENDER_LIMIT = 240;
 const TIMELINE_ROW_HEIGHT = 84;
 const VIRTUAL_OVERSCAN = 6;
+const MAX_CACHED_SESSIONS = 8;
+const MAX_CACHED_EVENT_DETAILS = 24;
+const TokenArcChart = React.lazy(() => import('./components/TokenArcChart'));
+
+function getFromCappedCache<T>(cache: Map<string, T>, key: string): T | undefined {
+  const cached = cache.get(key);
+  if (cached === undefined) {
+    return undefined;
+  }
+  cache.delete(key);
+  cache.set(key, cached);
+  return cached;
+}
+
+function setToCappedCache<T>(cache: Map<string, T>, key: string, value: T, maxEntries: number) {
+  if (cache.has(key)) {
+    cache.delete(key);
+  }
+  cache.set(key, value);
+
+  while (cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) {
+      break;
+    }
+    cache.delete(oldestKey);
+  }
+}
 
 function useElementSize<T extends HTMLElement>(active = true) {
   const ref = React.useRef<T | null>(null);
@@ -148,6 +168,28 @@ export default function App() {
   const [isEventDetailLoading, setIsEventDetailLoading] = React.useState(false);
   const [sessionRenderLimit, setSessionRenderLimit] = React.useState(DEFAULT_SESSION_RENDER_LIMIT);
   const [showAllEvents, setShowAllEvents] = React.useState(false);
+  const sessionDetailCacheRef = React.useRef(new Map<string, ParsedConversation>());
+  const eventDetailCacheRef = React.useRef(new Map<string, EventDetail>());
+
+  const applySessionDetail = React.useCallback(
+    (data: ParsedConversation, preserveSelectedEvent?: TraceEvent | null) => {
+      const nextSelectedEvent = preserveSelectedEvent
+        ? data.events.find(
+            (event) =>
+              event.index === preserveSelectedEvent.index ||
+              event.id === preserveSelectedEvent.id
+          ) ?? null
+        : null;
+
+      setParsedData(data);
+      setSelectedEvent(nextSelectedEvent);
+      if (!nextSelectedEvent) {
+        setSelectedEventDetail(null);
+      }
+      return nextSelectedEvent;
+    },
+    []
+  );
 
   const fetchSessions = async (
     query = deferredSearch,
@@ -199,26 +241,27 @@ export default function App() {
 
   const fetchSessionDetail = async (
     id: string,
-    options?: { background?: boolean; preserveSelectedEvent?: TraceEvent | null }
+    options?: { background?: boolean; preserveSelectedEvent?: TraceEvent | null; force?: boolean }
   ): Promise<ParsedConversation | null> => {
     if (!options?.background) {
       setIsLoading(true);
     }
     try {
-      const res = await fetch(`/api/sessions/${id}`);
-      const data = await res.json();
-      const nextSelectedEvent = options?.preserveSelectedEvent
-        ? data.events.find(
-            (event: TraceEvent) =>
-              event.index === options.preserveSelectedEvent?.index ||
-              event.id === options.preserveSelectedEvent?.id
-          ) ?? null
-        : null;
-      setParsedData(data);
-      setSelectedEvent(nextSelectedEvent);
-      if (!nextSelectedEvent) {
-        setSelectedEventDetail(null);
+      if (!options?.force) {
+        const cached: ParsedConversation | undefined = getFromCappedCache<ParsedConversation>(
+          sessionDetailCacheRef.current,
+          id
+        );
+        if (cached !== undefined) {
+          applySessionDetail(cached, options?.preserveSelectedEvent);
+          return cached;
+        }
       }
+
+      const res = await fetch(`/api/sessions/${id}`);
+      const data: ParsedConversation = await res.json();
+      setToCappedCache(sessionDetailCacheRef.current, id, data, MAX_CACHED_SESSIONS);
+      applySessionDetail(data, options?.preserveSelectedEvent);
       return data;
     } catch (e) {
       console.error(e);
@@ -233,14 +276,27 @@ export default function App() {
   const fetchEventDetail = async (
     sessionId: string,
     eventIndex: number,
-    options?: { background?: boolean }
+    options?: { background?: boolean; force?: boolean }
   ): Promise<EventDetail | null> => {
     if (!options?.background) {
       setIsEventDetailLoading(true);
     }
     try {
+      const cacheKey = `${sessionId}:${eventIndex}`;
+      if (!options?.force) {
+        const cached: EventDetail | undefined = getFromCappedCache<EventDetail>(
+          eventDetailCacheRef.current,
+          cacheKey
+        );
+        if (cached !== undefined) {
+          setSelectedEventDetail(cached);
+          return cached;
+        }
+      }
+
       const res = await fetch(`/api/conversations/${sessionId}/events/${eventIndex}?full=1`);
-      const data = await res.json();
+      const data: EventDetail = await res.json();
+      setToCappedCache(eventDetailCacheRef.current, cacheKey, data, MAX_CACHED_EVENT_DETAILS);
       setSelectedEventDetail(data);
       return data;
     } catch (e) {
@@ -259,6 +315,8 @@ export default function App() {
     const preservedSessionId = selectedSession;
     const preservedEvent = selectedEvent;
     try {
+      sessionDetailCacheRef.current.clear();
+      eventDetailCacheRef.current.clear();
       const [refreshedSessions] = await Promise.all([
         fetchSessions(deferredSearch, { background: true }),
         fetchGlobalToolAnalytics(),
@@ -278,9 +336,10 @@ export default function App() {
       await fetchSessionDetail(activeSessionId, {
         background: true,
         preserveSelectedEvent: activeSessionId === preservedSessionId ? preservedEvent : null,
+        force: true,
       });
       if (activeSessionId === preservedSessionId && preservedEvent?.index !== undefined) {
-        await fetchEventDetail(activeSessionId, preservedEvent.index, { background: true });
+        await fetchEventDetail(activeSessionId, preservedEvent.index, { background: true, force: true });
       }
     } finally {
       setIsRefreshing(false);
@@ -349,7 +408,22 @@ export default function App() {
   const visibleToolMax = visibleToolRows[0]?.count || 1;
   const toolRootsPreview = visibleToolAnalytics?.top_command_roots?.slice(0, 3).map(item => item.name).join(', ');
   const inspectorPayload = selectedEventDetail?.raw ?? selectedEvent?.raw ?? selectedEvent?.payload;
-  const tokenChart = useElementSize<HTMLDivElement>(Boolean(parsedData) && !isFocusMode);
+  const inspectorPayloadText = React.useMemo(
+    () => stringifyForDisplay(inspectorPayload),
+    [inspectorPayload]
+  );
+  const renderedInspectorPayload = React.useMemo(
+    () => renderJSONPayload(inspectorPayload),
+    [inspectorPayload]
+  );
+  const renderedStructuredDetail = React.useMemo(
+    () => (selectedEvent ? renderStructuredDetail(selectedEvent) : null),
+    [selectedEvent]
+  );
+  const renderedFormattedContent = React.useMemo(
+    () => (selectedEvent ? renderFormattedContent(selectedEvent) : null),
+    [selectedEvent]
+  );
   const shouldVirtualizeTimeline = !isFocusMode;
   const timelineWindow = useVirtualWindow(timelineEvents.length, TIMELINE_ROW_HEIGHT, shouldVirtualizeTimeline);
   const renderedTimelineEvents = React.useMemo(
@@ -524,30 +598,10 @@ export default function App() {
                     <div className="text-[10px] font-bold uppercase text-text-secondary">Token Arc & Compaction</div>
                     <div className="text-[10px] font-mono text-brand-orange">Peak: {parsedData.summary.metrics.peakTokens.toLocaleString()}</div>
                   </div>
-                  <div ref={tokenChart.ref} className="flex-1 min-w-0 min-h-0">
-                    {tokenChart.size.width > 0 && tokenChart.size.height > 0 && (
-                      <AreaChart
-                        width={tokenChart.size.width}
-                        height={tokenChart.size.height}
-                        data={parsedData.tokenSeries}
-                        margin={{ top: 5, right: 0, left: -20, bottom: 0 }}
-                      >
-                        <defs>
-                          <linearGradient id="tokenGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2}/>
-                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#2A2A2E" />
-                        <XAxis dataKey="timestamp" hide />
-                        <YAxis hide domain={[0, 'dataMax + 10000']} />
-                        <Tooltip 
-                          contentStyle={{ background: '#0A0A0C', border: '1px solid #2A2A2E', borderRadius: '4px', fontSize: '10px' }}
-                          labelFormatter={(l) => formatFullDate(l)}
-                        />
-                        <Area type="monotone" dataKey="totalTokens" stroke="#3b82f6" fill="url(#tokenGrad)" strokeWidth={1} />
-                      </AreaChart>
-                    )}
+                  <div className="flex-1 min-w-0 min-h-0">
+                    <React.Suspense fallback={<div className="h-full w-full rounded border border-border-subtle bg-bg-surface/50" />}>
+                      <TokenArcChart data={parsedData.tokenSeries} />
+                    </React.Suspense>
                   </div>
                 </div>
                 <div className="flex-1 min-w-0 p-3 flex flex-col bg-bg-deep">
@@ -749,7 +803,7 @@ export default function App() {
                       <div className="flex gap-3">
                         <button
                           className="text-[10px] text-brand-blue hover:text-white transition-colors"
-                          onClick={() => navigator.clipboard.writeText(stringifyForDisplay(inspectorPayload))}
+                          onClick={() => navigator.clipboard.writeText(inspectorPayloadText)}
                         >
                           Copy JSON
                         </button>
@@ -782,12 +836,12 @@ export default function App() {
                               <div className="font-mono text-text-primary">{selectedEvent.category}</div>
                               <div className="text-text-muted">Timestamp</div>
                               <div className="text-text-secondary font-mono">{selectedEvent.timestamp}</div>
-                              {renderStructuredDetail(selectedEvent)}
+                              {renderedStructuredDetail}
                             </div>
                           </div>
 
                           {/* New Formatted Content Section */}
-                          {renderFormattedContent(selectedEvent)}
+                          {renderedFormattedContent}
 
                           <div>
                             <div className="flex items-center justify-between gap-3 mb-2">
@@ -802,7 +856,7 @@ export default function App() {
                             </div>
                             <div className="bg-black p-4 rounded border border-border-subtle font-mono text-[11px] leading-relaxed overflow-x-auto">
                               <pre className="text-text-bright/90 whitespace-pre">
-                                {renderJSONPayload(inspectorPayload)}
+                                {renderedInspectorPayload}
                               </pre>
                             </div>
                           </div>
