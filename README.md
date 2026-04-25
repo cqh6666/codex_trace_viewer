@@ -6,7 +6,7 @@ A professional web-based tool for analyzing Codex rollout traces. The app scans 
 
 ## Screenshot
 
-![Codex Trace Viewer Interface](./asserts/example.png)
+![Codex Trace Viewer Interface](./assets/example.png)
 
 The interface features a three-panel layout with session list, event timeline, and detailed event inspector.
 
@@ -64,7 +64,20 @@ CODEX_SESSIONS_PATH=./data/sessions CODEX_ARCHIVED_PATH=./data/archived_sessions
 PORT=8080 npm run dev
 ```
 
-Create a `.env` file for persistent configuration (see `.env.example`).
+Create a `.env` file for persistent configuration (see `.env.example`):
+
+```env
+# Codex Trace Viewer Configuration
+# Defaults to ~/.codex when no explicit path is set.
+# CODEX_HOME="/Users/you/.codex"
+
+# Use these when you want to point at fixture data or a non-standard trace location.
+# CODEX_SESSIONS_PATH="./data/sessions"
+# CODEX_ARCHIVED_PATH="./data/archived_sessions"
+
+# Optional: Custom port (default: 3000)
+# PORT=8080
+```
 
 ## API Endpoints
 
@@ -127,6 +140,26 @@ npm run preview
 # Clean build artifacts
 npm run clean
 ```
+
+## Troubleshooting
+
+### No sessions found
+
+If the viewer shows no sessions:
+- Verify that `~/.codex/sessions` or your custom `CODEX_HOME` path exists
+- Check that the directory contains `.jsonl` files
+- Ensure the session files are readable (check file permissions)
+
+### Port already in use
+
+If port 3000 is already occupied:
+```bash
+PORT=8080 npm run dev
+```
+
+### Sessions not updating
+
+Click the refresh button in the header or restart the dev server to reload session data.
 
 ## License
 

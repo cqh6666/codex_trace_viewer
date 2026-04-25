@@ -6,7 +6,7 @@
 
 ## 界面截图
 
-![Codex Trace Viewer 界面](./asserts/example.png)
+![Codex Trace Viewer 界面](./assets/example.png)
 
 界面采用三栏布局，包含会话列表、事件时间线和详细的事件检查器。
 
@@ -64,7 +64,20 @@ CODEX_SESSIONS_PATH=./data/sessions CODEX_ARCHIVED_PATH=./data/archived_sessions
 PORT=8080 npm run dev
 ```
 
-创建 `.env` 文件以进行持久化配置（参考 `.env.example`）。
+创建 `.env` 文件以进行持久化配置（参考 `.env.example`）：
+
+```env
+# Codex Trace Viewer 配置
+# 未设置显式路径时默认为 ~/.codex
+# CODEX_HOME="/Users/you/.codex"
+
+# 当你想指向测试数据或非标准追踪位置时使用这些配置
+# CODEX_SESSIONS_PATH="./data/sessions"
+# CODEX_ARCHIVED_PATH="./data/archived_sessions"
+
+# 可选：自定义端口（默认：3000）
+# PORT=8080
+```
 
 ## API 端点
 
@@ -127,6 +140,26 @@ npm run preview
 # 清理构建产物
 npm run clean
 ```
+
+## 故障排查
+
+### 找不到会话
+
+如果查看器显示没有会话：
+- 验证 `~/.codex/sessions` 或你的自定义 `CODEX_HOME` 路径是否存在
+- 检查目录中是否包含 `.jsonl` 文件
+- 确保会话文件可读（检查文件权限）
+
+### 端口已被占用
+
+如果端口 3000 已被占用：
+```bash
+PORT=8080 npm run dev
+```
+
+### 会话未更新
+
+点击页头的刷新按钮或重启开发服务器以重新加载会话数据。
 
 ## 许可证
 
